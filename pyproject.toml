@@ -7,8 +7,9 @@ readme = "README.md"
 package-mode = false
 
 [tool.poetry.dependencies]
-python = "^3.12"
+python = "^3.10"
 cython = "^3.1.6"
+whoosh = "^2.7.4"
 
 
 [build-system]
