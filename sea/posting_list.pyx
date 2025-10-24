@@ -53,6 +53,11 @@ cdef class PostingList:
         self._items = new_items
         return self
 
+    cpdef clone(self):
+        cdef PostingList new_list = PostingList(self._key)
+        new_list._items = self._items.copy()
+        return new_list
+
     def __len__(self):
         return len(self._items)
 
@@ -61,3 +66,6 @@ cdef class PostingList:
 
     def __repr__(self) -> str:
         return f"SortedSet({self._items})"
+    
+    def __getitem__(self, int index):
+        return self._items[index]

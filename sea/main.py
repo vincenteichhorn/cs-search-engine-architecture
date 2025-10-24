@@ -1,8 +1,10 @@
 import gzip
+from tqdm import tqdm
 from sea.document import Document
+from sea.index import Index
 from sea.tokenizer import Tokenizer
 
-MAX_DOCUMENTS = 1000
+MAX_DOCUMENTS = 500
 
 if __name__ == "__main__":
 
@@ -11,7 +13,7 @@ if __name__ == "__main__":
             incomplete_lines = 0
             documents = []
 
-            for line in file:
+            for line in tqdm(file, desc="Loading documents", total=MAX_DOCUMENTS):
                 if len(documents) >= MAX_DOCUMENTS:
                     break
                 columns = line.strip().split("\t")
@@ -28,11 +30,22 @@ if __name__ == "__main__":
     tokenizer = Tokenizer()
     documents = load_documents("./data/msmarco-docs.tsv.gz")
     print(documents[0].tokens)
-    print(documents[0].token_counts)
+    index = Index()
+    for doc in tqdm(documents, desc="Indexing documents"):
+        index.add_document(doc)
+    print(index) # ruft die __repr__() auf  
     
 
-    # while True:
-    #     query = input("Enter your search query: ")
-    #     print(f"Searching for: {query}")
+    while True:
+        query = input("Enter your search query: ")
+        print(f"Searching for: {query}")
+        results = []
+        query_tokens = tokenizer.tokenize_query(query)
+        results = index.search(query_tokens)
+        print(f"Found {len(results)} documents matching the query.")
+        for i, doc in enumerate(results):
+            if i >= 10:
+                break
+            print(doc.title, doc.url)
 
         

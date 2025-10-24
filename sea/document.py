@@ -13,6 +13,7 @@ class Document:
         self.tokenizer = tokenizer
         self._tokenize()
         self.token_counts = None
+        self.token_positions = None
         self._count_tokens()
         Document._next_id += 1
 
@@ -32,8 +33,11 @@ class Document:
         """
         if self.token_counts is None and self.tokens is not None:
             counts = defaultdict(int)
-            for token in self.tokens:
+            positions = defaultdict(list)
+            for i, token in enumerate(self.tokens):
                 counts[token] += 1
+                positions[token].append(i)
             self.token_counts = counts
+            self.token_positions = positions
         else:
             raise ValueError("Document must be tokenized before counting tokens.")

@@ -1,5 +1,6 @@
 from whoosh.analysis import RegexTokenizer
 from whoosh.analysis import StopFilter
+from nltk.stem import PorterStemmer
 
 class Tokenizer:
     def __init__(self):
@@ -17,6 +18,12 @@ class Tokenizer:
         def LowercaseFilter(tokens):
             for t in tokens:
                 t.text = t.text.lower()
+                yield t
+        
+        def StemmerFilter(tokens):
+            stemmer = PorterStemmer()
+            for t in tokens:
+                t.text = stemmer.stem(t.text)
                 yield t
 
         token_stream = LowercaseFilter(token_stream)
