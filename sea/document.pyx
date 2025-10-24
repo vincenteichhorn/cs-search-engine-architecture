@@ -1,42 +1,59 @@
 from collections import defaultdict
+from typing import List
 
+# Cython extension type for performance benefits
+cdef class Document:
+    cdef public int id
+    cdef public object title
+    cdef public object url
+    cdef public object body
+    cdef public object tokenizer
+    cdef public list tokens
+    cdef public object token_counts
+    cdef public object token_positions
 
-class Document:
-    _next_id = 1
+    cdef int _next_id = 1
 
-    def __init__(self, title, url, body, tokenizer):
+    def __cinit__(self, title, url, body, tokenizer):
         self.title = title
         self.url = url
         self.body = body
+        self.tokenizer = tokenizer
         self.id = Document._next_id
         self.tokens = None
-        self.tokenizer = tokenizer
-        self._tokenize()
         self.token_counts = None
         self.token_positions = None
+
+    def __init__(self, title, url, body, tokenizer):
+        self._tokenize()
         self._count_tokens()
         Document._next_id += 1
 
     def __repr__(self):
         return f"Document(id={self.id}, title={self.title}, url={self.url})"
-    
-    def _tokenize(self):
+
+    cdef void _tokenize(self):
         """
         ruft den Tokenizer auf, um das Dokument zu tokenisieren
         """
         if self.tokens is None:
+            # Tokenizer returns a list of tokens
             self.tokens = self.tokenizer.tokenize_document(self)
 
-    def _count_tokens(self):
+    cdef void _count_tokens(self):
         """
         Zählt die Häufigkeit jedes Tokens im Dokument
         """
         if self.token_counts is None and self.tokens is not None:
-            counts = defaultdict(int)
-            positions = defaultdict(list)
+            cdef object counts = defaultdict(int)
+            cdef object positions = defaultdict(list)
+            cdef Py_ssize_t i
+            cdef object token
+
             for i, token in enumerate(self.tokens):
                 counts[token] += 1
                 positions[token].append(i)
+
             self.token_counts = counts
             self.token_positions = positions
         else:
