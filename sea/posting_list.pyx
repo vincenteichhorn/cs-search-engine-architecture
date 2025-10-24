@@ -1,5 +1,3 @@
-
-
 cdef class PostingList:
 
     cdef list _items

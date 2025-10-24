@@ -1,33 +1,35 @@
+import gzip
 from sea.document import Document
 from sea.tokenizer import Tokenizer
 
+MAX_DOCUMENTS = 1000
+
 if __name__ == "__main__":
 
-    doc1 = Document("title", "www.", "Hello, we are hungry.")
+    def load_documents(path):
+        with gzip.open(path, 'rt', encoding='utf-8') as file: # 15.000 documente in memory laden
+            incomplete_lines = 0
+            documents = []
+
+            for line in file:
+                if len(documents) >= MAX_DOCUMENTS:
+                    break
+                columns = line.strip().split("\t")
+                if len(columns) < 4:
+                    incomplete_lines += 1
+                    continue  # weird lines skippen
+                doc = Document(columns[2], columns[1], columns[3], tokenizer)
+                documents.append(doc)
+
+        print(f"Loaded {len(documents)} documents.")
+        print("Weird lines with less than 4 columns (not read):", incomplete_lines)
+        return documents
+
     tokenizer = Tokenizer()
-    tokens = tokenizer.tokenize_document(doc1)
-    print(tokens)
+    documents = load_documents("./data/msmarco-docs.tsv.gz")
+    print(documents[0].tokens)
+    print(documents[0].token_counts)
     
-    # def load_documents(path):
-        # with gzip.open(path, 'rt', encoding='utf-8') as file: # 15.000 documente in memory laden
-        #     count = 0
-        #     weird = 0
-        #     for line in file:
-        #         if count >= max_documents:
-        #             break
-        #         columns = line.strip().split("\t")
-        #         if len(columns) < 4:
-        #             weird += 1
-        #             continue  # weird lines skippen
-        #         doc = {
-        #             "docid": columns[0],
-        #             "url": columns[1],
-        #             "title": columns[2],
-        #             "body": columns[3]}
-        #         documents.append(doc)
-        #         count += 1
-        # print(f"Loaded {len(documents)} documents.")
-        # print("Weird lines with less than 4 columns (not read):", weird)
 
     # while True:
     #     query = input("Enter your search query: ")
