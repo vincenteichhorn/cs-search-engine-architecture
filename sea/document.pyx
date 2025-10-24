@@ -1,7 +1,8 @@
 from collections import defaultdict
 from typing import List
 
-# Cython extension type for performance benefits
+cdef int NEXT_ID = 1
+
 cdef class Document:
     cdef public int id
     cdef public object title
@@ -12,14 +13,14 @@ cdef class Document:
     cdef public object token_counts
     cdef public object token_positions
 
-    cdef int _next_id = 1
-
     def __cinit__(self, title, url, body, tokenizer):
         self.title = title
         self.url = url
         self.body = body
         self.tokenizer = tokenizer
-        self.id = Document._next_id
+        global NEXT_ID
+        self.id = NEXT_ID
+        NEXT_ID += 1
         self.tokens = None
         self.token_counts = None
         self.token_positions = None
@@ -27,7 +28,6 @@ cdef class Document:
     def __init__(self, title, url, body, tokenizer):
         self._tokenize()
         self._count_tokens()
-        Document._next_id += 1
 
     def __repr__(self):
         return f"Document(id={self.id}, title={self.title}, url={self.url})"
@@ -44,12 +44,12 @@ cdef class Document:
         """
         Zählt die Häufigkeit jedes Tokens im Dokument
         """
-        if self.token_counts is None and self.tokens is not None:
-            cdef object counts = defaultdict(int)
-            cdef object positions = defaultdict(list)
-            cdef Py_ssize_t i
-            cdef object token
+        cdef object counts = defaultdict(int)
+        cdef object positions = defaultdict(list)
+        cdef Py_ssize_t i
+        cdef object token
 
+        if self.token_counts is None and self.tokens is not None:
             for i, token in enumerate(self.tokens):
                 counts[token] += 1
                 positions[token].append(i)
@@ -58,3 +58,4 @@ cdef class Document:
             self.token_positions = positions
         else:
             raise ValueError("Document must be tokenized before counting tokens.")
+
