@@ -20,7 +20,11 @@ bash download.sh
 
 To run the main application, use:
 ```bash
-poetry run python -m sea.main
+(poetry run) python -m sea.main
+```
+or 
+```bash
+(poetry run) sea
 ```
 
 ## Project Structure

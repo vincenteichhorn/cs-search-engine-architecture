@@ -2,7 +2,7 @@
 name = "sea"
 version = "0.1.0"
 description = ""
-authors = ["Vincent Eichhorn <vincent.eichhorn@student.hpi.de>"]
+authors = ["Vincent Eichhorn <vincent.eichhorn@student.hpi.de>", "Alicia Cabrejas-Leonhardt <alicia.cabrejas-leonhardt@student.hpi.de>"]
 readme = "README.md"
 
 [tool.poetry.dependencies]
