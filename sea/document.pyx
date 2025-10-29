@@ -34,7 +34,7 @@ cdef class Document:
 
     cdef void _tokenize(self):
         """
-        ruft den Tokenizer auf, um das Dokument zu tokenisieren
+        Calls the tokenizer to tokenize the document's content
         """
         if self.tokens is None:
             # Tokenizer returns a list of tokens
@@ -42,7 +42,7 @@ cdef class Document:
 
     cdef void _count_tokens(self):
         """
-        Zählt die Häufigkeit jedes Tokens im Dokument
+        Counts the frequency of each token in the document
         """
         cdef object counts = defaultdict(int)
         cdef object positions = defaultdict(list)

@@ -1,3 +1,6 @@
-data/*
-build/*
+data/
+build/
 __pycache__/
+sea/__pycache__/
+*.pyc
+.env

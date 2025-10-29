@@ -1,26 +1,83 @@
+from typing import List
 from whoosh.analysis import RegexTokenizer
-from whoosh.analysis import StopFilter
 from nltk.stem import PorterStemmer
+from sea.document import Document
+
 
 class Tokenizer:
-    def __init__(self):
-        pass
+    def __init__(self, stop_words=None):
 
-    def tokenize(self, text, is_query=False):
-        tokenizer = RegexTokenizer() # erstellt Tokenizer-Objekt aus der bib whoosh                
-        token_stream = tokenizer(text) # erzeugt Token-Stream aus dem Text
-        
-        def StoppFilter(tokens):
-            stopper = StopFilter()
-            for t in stopper(tokens):
-                yield t
+        self.stop_words = stop_words or (
+            "a",
+            "an",
+            "and",
+            "are",
+            "as",
+            "at",
+            "be",
+            "by",
+            "can",
+            "for",
+            "from",
+            "have",
+            "if",
+            "in",
+            "is",
+            "it",
+            "may",
+            "not",
+            "of",
+            "on",
+            "or",
+            "tbd",
+            "that",
+            "the",
+            "this",
+            "to",
+            "us",
+            "we",
+            "when",
+            "will",
+            "with",
+            "yet",
+            "you",
+            "your",
+        )
+
+    def tokenize(self, text: str, is_query: bool = False) -> List[str]:
+        """
+        Tokenize the input text into a stream of tokens.
+
+        Args:
+            text (str): The input text to be tokenized.
+            is_query (bool, optional): If True, do not remove stop words (default is False).
+
+        Returns:
+            List[str]: A list of token strings extracted from the input text.
+        """
+        tokenizer = RegexTokenizer()
+        token_stream = tokenizer(text)
+
+        def StopFilter(tokens):
+            """
+            Filter out stop words from the token stream. Uses a predefined list of common English stop words.
+            """
+            for t in tokens:
+                if t.text not in self.stop_words:
+                    yield t
 
         def LowercaseFilter(tokens):
+            """
+            Convert all tokens in the token stream to lowercase.
+            """
             for t in tokens:
                 t.text = t.text.lower()
                 yield t
-        
+
         def StemmerFilter(tokens):
+            """
+            Apply Porter stemming to each token in the token stream.
+            """
             stemmer = PorterStemmer()
             for t in tokens:
                 t.text = stemmer.stem(t.text)
@@ -28,13 +85,32 @@ class Tokenizer:
 
         token_stream = LowercaseFilter(token_stream)
         if not is_query:
-            token_stream = StoppFilter(token_stream)
-        return [t.text for t in token_stream] # es wird nur der Text gespeichert, ohne andere Metadaten
-        
-    def tokenize_document(self, document):
+            token_stream = StopFilter(token_stream)
+        token_stream = StemmerFilter(token_stream)
+        return [t.text for t in token_stream]
+
+    def tokenize_document(self, document: Document) -> List[str]:
+        """
+        Tokenize the content of a document, including its body and title.
+
+        Args:
+            document (Document): The Document object whose content is to be tokenized.
+
+        Returns:
+            List[str]: A list of token strings extracted from the document's content.
+        """
         tokens = self.tokenize(document.body)
         tokens.extend(self.tokenize(document.title))
         return tokens
 
-    def tokenize_query(self, query):
+    def tokenize_query(self, query: str) -> List[str]:
+        """
+        Tokenize a search query.
+
+        Args:
+            query (str): The search query to be tokenized.
+
+        Returns:
+            List[str]: A list of token strings extracted from the search query.
+        """
         return self.tokenize(query, is_query=True)

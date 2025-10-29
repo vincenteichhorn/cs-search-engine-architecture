@@ -1,13 +1,26 @@
 # Search Engine Architecture
 
 ## Setup Instructions
-The project uses Poetry for dependency management. To set up the environment, run:
+Install poetry if you haven't already. You can find installation instructions at [https://python-poetry.org/docs/#installation](https://python-poetry.org/docs/#installation).
+To set up the environment, run:
 ```bash
+cd cs-search-engine-architecture
 poetry install
 ```
 To activate the virtual environment, use:
 ```bash
 source $(poetry env info --path)/bin/activate
+```
+
+## Run
+Download the required dataset by executing:
+```bash
+bash download.sh
+```
+
+To run the main application, use:
+```bash
+poetry run python -m sea.main
 ```
 
 ## Project Structure

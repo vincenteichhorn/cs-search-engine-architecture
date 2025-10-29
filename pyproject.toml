@@ -1,10 +1,9 @@
 [tool.poetry]
-name = "cs-search-engine-architecture"
+name = "sea"
 version = "0.1.0"
 description = ""
 authors = ["Vincent Eichhorn <vincent.eichhorn@student.hpi.de>"]
 readme = "README.md"
-package-mode = false
 
 [tool.poetry.dependencies]
 python = ">=3.11,<4.0"
@@ -19,3 +18,6 @@ setuptools = "^80.9.0"
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.scripts]
+sea = "sea.main:main"

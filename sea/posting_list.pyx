@@ -8,6 +8,14 @@ cdef class PostingList:
         self._key = key
 
     cpdef void add(self, object item):
+        """
+        Adds an item to the posting list while maintaining sorted order. Sorting is
+        based on the provided key function, or the item itself if no key is given.
+
+        Arguments:
+            item (object): The item to be added to the posting list.
+        """
+
         cdef object object_key = item if self._key is None else self._key(item)
         cdef int lo = 0
         cdef int hi = len(self._items)
@@ -28,6 +36,15 @@ cdef class PostingList:
         self._items.insert(lo, item)
 
     cpdef PostingList intersection(self, PostingList other):
+        """
+        Returns a new PostingList that is the intersection of this list and another.
+
+        Arguments:
+            other (PostingList): Another PostingList to intersect with.
+        
+        Returns:
+            PostingList: A new PostingList containing items present in both lists.
+        """
         cdef list new_items = []
         cdef int i = 0
         cdef int j = 0
@@ -54,6 +71,12 @@ cdef class PostingList:
         return self
 
     cpdef clone(self):
+        """
+        Creates a shallow copy of the PostingList.
+
+        Returns:
+            PostingList: A new PostingList instance with the same items and key function.
+        """
         cdef PostingList new_list = PostingList(self._key)
         new_list._items = self._items.copy()
         return new_list
