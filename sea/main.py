@@ -17,12 +17,11 @@ def main():
     index = Index()
     index.add_documents(documents, verbose=True)
     print(index)
-    print(len(index._all_docs), "total documents in index.")
-    print(len(index._index["banana"])) 
 
     while True:
         query_text = input("Enter your search query: ")
         query = Query(query_text, tokenizer)
+        print(query)
         results = index.search(query)
         if results is []:
             print("No documents found matching the query.")

@@ -36,8 +36,6 @@ class Query:
         if filled_tokens == []:
             return None
 
-
-
         ops = []
         vals = []
 
@@ -85,6 +83,10 @@ class Query:
             tokens (List[str]): A list of tokens representing the query.
         Returns:
             List[str]: A list of tokens with implicit AND operators filled in.
+
+        TODO: Handle edge cases more gracefully. REFACTOR!
+            - not not and not tree
+        TOTAL_HOURS_WASTED_HERE = 1
         """
         filled_tokens = []
         beginning = True
@@ -106,11 +108,9 @@ class Query:
 
         end = True
         for i, token in enumerate(reversed(filled_tokens)):
-            if token in operators or token == "not" and end == True:
+            if (token in operators or token == "not") and end == True:
                 filled_tokens.remove(token)
             else:
                 end = False
-
-
 
         return filled_tokens

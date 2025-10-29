@@ -42,7 +42,7 @@ class Index:
         for document in tqdm(documents, disable=not verbose, desc="Indexing documents"):
             self.add_document(document)
 
-    def search(self, query: Query ) -> List[Document]:
+    def search(self, query: Query) -> List[Document]:
         """
         Search the index for documents matching the given query tokens.
         Args:
@@ -53,46 +53,49 @@ class Index:
         """
         if query.root is None:
             return []
-        
+
         def evaluate_node(node: Node) -> Tuple[PostingList, bool]:
             if node.left is None and node.right is None:
-                return self._index.get(node.value, PostingList(key=lambda doc: doc.id)).clone(), node.is_not
-            
+                return (
+                    self._index.get(node.value, PostingList(key=lambda doc: doc.id)).clone(),
+                    node.is_not,
+                )
+
             left_postings, left_is_not = evaluate_node(node.left)
             right_postings, right_is_not = evaluate_node(node.right)
 
             if node.value == "and":
 
                 if not left_is_not and not right_is_not:
-                    return left_postings.union(right_postings), False
-                
+                    return left_postings.intersection(right_postings), False
+
                 elif left_is_not and not right_is_not:
                     return right_postings.difference(left_postings), False
-                
+
                 elif not left_is_not and right_is_not:
                     return left_postings.difference(right_postings), False
-                
+
                 else:
                     return left_postings.union(right_postings), True
-                
+
             elif node.value == "or":
-                
+
                 if not left_is_not and not right_is_not:
                     return left_postings.union(right_postings), False
-                
+
                 elif left_is_not and not right_is_not:
                     return left_postings.difference(right_postings), True
-                
+
                 elif not left_is_not and right_is_not:
                     return right_postings.difference(left_postings), True
-                
+
                 else:
                     return left_postings.intersection(right_postings), True
-        
+
         results, is_not = evaluate_node(query.root)
         if is_not:
-            results = self._all_docs.difference(results)
-        
+            results = self._all_docs.clone().difference(results)
+
         return results
 
     def __repr__(self):
