@@ -43,6 +43,7 @@ class Tokenizer:
             "you",
             "your",
         )
+        self.query_stop_words = set(self.stop_words).difference(set(["and", "or", "not"]))  # Can be extended for query-specific stop words
 
     def tokenize(self, text: str, is_query: bool = False) -> List[str]:
         """
@@ -58,12 +59,12 @@ class Tokenizer:
         tokenizer = RegexTokenizer()
         token_stream = tokenizer(text)
 
-        def StopFilter(tokens):
+        def StopFilter(tokens, stop_words):
             """
             Filter out stop words from the token stream. Uses a predefined list of common English stop words.
             """
             for t in tokens:
-                if t.text not in self.stop_words:
+                if t.text not in stop_words:
                     yield t
 
         def LowercaseFilter(tokens):
@@ -84,8 +85,11 @@ class Tokenizer:
                 yield t
 
         token_stream = LowercaseFilter(token_stream)
-        if not is_query:
-            token_stream = StopFilter(token_stream)
+        if is_query:
+            token_stream = StopFilter(token_stream, self.query_stop_words)
+        else:
+            token_stream = StopFilter(token_stream, self.stop_words)
+
         token_stream = StemmerFilter(token_stream)
         return [t.text for t in token_stream]
 
