@@ -33,6 +33,10 @@ class Query:
         """
         tokens = self.tokenizer.tokenize(input, is_query=True)
         filled_tokens = self._fill_in_ands(tokens)
+        if filled_tokens == []:
+            return None
+
+
 
         ops = []
         vals = []
@@ -99,4 +103,14 @@ class Query:
                 token != "not" and next_token not in operators or next_token == "not"
             ):
                 filled_tokens.append("and")
+
+        end = True
+        for i, token in enumerate(reversed(filled_tokens)):
+            if token in operators or token == "not" and end == True:
+                filled_tokens.remove(token)
+            else:
+                end = False
+
+
+
         return filled_tokens

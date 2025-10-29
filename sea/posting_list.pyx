@@ -70,6 +70,88 @@ cdef class PostingList:
         self._items = new_items
         return self
 
+    cpdef PostingList union(self, PostingList other):
+        """
+        Returns a new PostingList that is the union of this list and another.
+
+        Arguments:
+            other (PostingList): Another PostingList to unite with.
+        
+        Returns:
+            PostingList: A new PostingList containing all unique items from both lists.
+        """
+        cdef list new_items = []
+        cdef int i = 0
+        cdef int j = 0
+        cdef int n = len(self._items)
+        cdef int m = len(other._items)
+        cdef object item1, item2, key1, key2
+
+        while i < n and j < m:
+            item1 = self._items[i]
+            item2 = other._items[j]
+            key1 = item1 if self._key is None else self._key(item1)
+            key2 = item2 if other._key is None else other._key(item2)
+
+            if key1 < key2:
+                new_items.append(item1)
+                i += 1
+            elif key1 > key2:
+                new_items.append(item2)
+                j += 1
+            else:
+                new_items.append(item1)
+                i += 1
+                j += 1
+
+        while i < n:
+            new_items.append(self._items[i])
+            i += 1
+
+        while j < m:
+            new_items.append(other._items[j])
+            j += 1
+
+        self._items = new_items
+        return self
+
+    cpdef PostingList difference(self, PostingList other):
+        """
+        Returns a new PostingList that is the difference of this list and another.
+        Arguments:
+            other (PostingList): Another PostingList to subtract from this list.
+        Returns:
+            PostingList: A new PostingList containing items present in this list but not in the other.
+        """
+        cdef list new_items = []
+        cdef int i = 0
+        cdef int j = 0
+        cdef int n = len(self._items)
+        cdef int m = len(other._items)
+        cdef object item1, item2, key1, key2
+        while i < n and j < m:
+            item1 = self._items[i]
+            item2 = other._items[j]
+            key1 = item1 if self._key is None else self._key(item1)
+            key2 = item2 if other._key is None else other._key(item2)
+
+            if key1 == key2:
+                i += 1
+                j += 1
+            elif key1 < key2:
+                new_items.append(item1)
+                i += 1
+            else:
+                j += 1
+
+        while i < n:
+            new_items.append(self._items[i])
+            i += 1
+                
+        self._items = new_items
+        return self
+
+
     cpdef clone(self):
         """
         Creates a shallow copy of the PostingList.
@@ -80,6 +162,7 @@ cdef class PostingList:
         cdef PostingList new_list = PostingList(self._key)
         new_list._items = self._items.copy()
         return new_list
+
 
     def __len__(self):
         return len(self._items)

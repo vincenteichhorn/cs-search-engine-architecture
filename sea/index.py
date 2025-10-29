@@ -1,9 +1,10 @@
 from collections import defaultdict
-from typing import List
+from typing import List, Tuple
 
 from tqdm import tqdm
 from sea.posting_list import PostingList
 from sea.document import Document
+from sea.query import Node, Query
 
 
 class Index:
@@ -14,6 +15,7 @@ class Index:
 
         self._index = defaultdict(new_posting_list)
         self._doc_counts = defaultdict(int)
+        self._all_docs = PostingList(key=lambda doc: doc.id)
 
     def add_document(self, document: Document) -> None:
         """
@@ -26,6 +28,7 @@ class Index:
             raise ValueError("Document must be tokenized before adding to index.")
         for token in document.tokens:
             self._index[token].add(document)
+            self._all_docs.add(document)
             self._doc_counts[token] += 1
 
     def add_documents(self, documents: List[Document], verbose: bool = False) -> None:
@@ -39,7 +42,7 @@ class Index:
         for document in tqdm(documents, disable=not verbose, desc="Indexing documents"):
             self.add_document(document)
 
-    def search(self, query_tokens: List[str]) -> List[Document]:
+    def search(self, query: Query ) -> List[Document]:
         """
         Search the index for documents matching the given query tokens.
         Args:
@@ -48,17 +51,48 @@ class Index:
         Returns:
             List[Document]: A list of Document objects that match the query.
         """
-        if not query_tokens:
+        if query.root is None:
             return []
+        
+        def evaluate_node(node: Node) -> Tuple[PostingList, bool]:
+            if node.left is None and node.right is None:
+                return self._index.get(node.value, PostingList(key=lambda doc: doc.id)).clone(), node.is_not
+            
+            left_postings, left_is_not = evaluate_node(node.left)
+            right_postings, right_is_not = evaluate_node(node.right)
 
-        results = None
-        for token in query_tokens:
-            if token in self._index:
-                if results is None:
-                    results = self._index[token].clone()
+            if node.value == "and":
+
+                if not left_is_not and not right_is_not:
+                    return left_postings.union(right_postings), False
+                
+                elif left_is_not and not right_is_not:
+                    return right_postings.difference(left_postings), False
+                
+                elif not left_is_not and right_is_not:
+                    return left_postings.difference(right_postings), False
+                
                 else:
-                    results = results.intersection(self._index[token])
-
+                    return left_postings.union(right_postings), True
+                
+            elif node.value == "or":
+                
+                if not left_is_not and not right_is_not:
+                    return left_postings.union(right_postings), False
+                
+                elif left_is_not and not right_is_not:
+                    return left_postings.difference(right_postings), True
+                
+                elif not left_is_not and right_is_not:
+                    return right_postings.difference(left_postings), True
+                
+                else:
+                    return left_postings.intersection(right_postings), True
+        
+        results, is_not = evaluate_node(query.root)
+        if is_not:
+            results = self._all_docs.difference(results)
+        
         return results
 
     def __repr__(self):
