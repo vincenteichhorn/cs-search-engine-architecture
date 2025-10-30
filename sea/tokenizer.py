@@ -43,7 +43,9 @@ class Tokenizer:
             "you",
             "your",
         )
-        self.query_stop_words = set(self.stop_words).difference(set(["and", "or", "not"]))  # Can be extended for query-specific stop words
+        self.query_stop_words = set(self.stop_words).difference(
+            set(["and", "or", "not"])
+        )  # Can be extended for query-specific stop words
 
     def tokenize(self, text: str, is_query: bool = False) -> List[str]:
         """
@@ -56,7 +58,7 @@ class Tokenizer:
         Returns:
             List[str]: A list of token strings extracted from the input text.
         """
-        tokenizer = RegexTokenizer()
+        tokenizer = RegexTokenizer(expression=r'[\w]+|[()"]')
         token_stream = tokenizer(text)
 
         def StopFilter(tokens, stop_words):
