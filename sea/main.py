@@ -6,7 +6,7 @@ from sea.query import Query
 from sea.tokenizer import Tokenizer
 from sea.util import load_documents
 
-MAX_DOCUMENTS = 500
+MAX_DOCUMENTS = 1000
 
 
 def main():

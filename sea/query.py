@@ -9,6 +9,19 @@ class Node:
         self.right = right
         self.value = value
 
+    def __repr__(self):
+
+        def print_node(node: "Node", depth: int = 0) -> str:
+            if node is None:
+                return ""
+            result = "  " * depth
+            result += f"{node.value}\n"
+            result += print_node(node.left, depth + 1)
+            result += print_node(node.right, depth + 1)
+            return result
+
+        return print_node(self)
+
 
 class Query:
 
@@ -29,7 +42,11 @@ class Query:
             Node: The root node of the binary tree representing the query.
         """
         tokens = self.tokenizer.tokenize(input, is_query=True)
-        filled_tokens = tokens  # self._fill_in_ands(tokens)
+        filled_tokens = self._remove_surrounding_operators(tokens)
+        filled_tokens = self._remove_consecutive_operators(filled_tokens)
+        filled_tokens = self._fill_in_implicit_ands(filled_tokens)
+        filled_tokens = self._remove_in_phrase_ands(filled_tokens)
+
         if filled_tokens == []:
             return None
 
@@ -56,7 +73,7 @@ class Query:
                 while ops and ops[-1] != "(":
                     op = ops.pop()
                     right = vals.pop()
-                    left = vals.pop()
+                    left = vals.pop() if op != "not" else None
                     vals.append(Node(value=op, left=left, right=right))
 
                 ops.pop()
@@ -71,7 +88,6 @@ class Query:
                     phrase_tokens.append(token)
                 else:
                     vals.append(Node(value=token))
-
         while ops:
             op = ops.pop()
             right = vals.pop()
@@ -81,19 +97,49 @@ class Query:
         return vals[0]
 
     def __repr__(self):
+        return self.root.__repr__()
 
-        def print_node(node: Node, depth: int = 0) -> str:
-            if node is None:
-                return ""
-            result = "  " * depth
-            result += f"{node.value}\n"
-            result += print_node(node.left, depth + 1)
-            result += print_node(node.right, depth + 1)
-            return result
+    def _remove_surrounding_operators(self, tokens: List[str]) -> List[str]:
+        """
+        Remove leading and trailing operators from the token list.
 
-        return print_node(self.root)
+        Args:
+            tokens (List[str]): A list of tokens representing the query.
+        Returns:
+            List[str]: A list of tokens with leading and trailing operators removed.
+        """
+        operators = {"and", "or"}
+        first_valid_token_index = 0
+        last_valid_token_index = len(tokens) - 1
+        while tokens[first_valid_token_index] in operators:
+            first_valid_token_index += 1
+        while tokens[last_valid_token_index] in operators:
+            last_valid_token_index -= 1
+        return tokens[first_valid_token_index : last_valid_token_index + 1]
 
-    def _fill_in_ands(self, tokens: List[str]) -> List[str]:
+    def _remove_consecutive_operators(self, tokens: List[str]) -> List[str]:
+        """
+        Remove consecutive operators from the token list.
+
+        Args:
+            tokens (List[str]): A list of tokens representing the query.
+        Returns:
+            List[str]: A list of tokens with consecutive operators removed.
+        """
+        if not tokens:
+            return tokens
+
+        cleaned_tokens = [tokens[0]]
+        operators = {"and", "or"}
+
+        for token in tokens[1:]:
+            if token in operators and cleaned_tokens[-1] in operators:
+                continue
+            cleaned_tokens.append(token)
+
+        return cleaned_tokens
+
+    def _fill_in_implicit_ands(self, tokens: List[str]) -> List[str]:
         """
         Fill in implicit AND operators between tokens where no operator is specified.
 
@@ -101,57 +147,43 @@ class Query:
             tokens (List[str]): A list of tokens representing the query.
         Returns:
             List[str]: A list of tokens with implicit AND operators filled in.
-
-        TODO: Handle edge cases more gracefully. REFACTOR!
-            - not not and not tree
-        TOTAL_HOURS_WASTED_HERE = 1
         """
-        filled_tokens = []
-        beginning = True
+        if not tokens:
+            return tokens
+        filled_tokens = [tokens[0]]
         operators = {"and", "or"}
-        for i, token in enumerate(tokens):
-            if token in operators and beginning == True:
-                continue
-            beginning = False
-            next_token = tokens[i + 1] if i + 1 < len(tokens) else "and"
-            if token in operators and (
-                filled_tokens[-1] == "not" or filled_tokens[-1] in operators
-            ):
-                continue
-            filled_tokens.append(token)
-            if token not in operators and (
-                token != "not" and next_token not in operators or next_token == "not"
+        is_phrase = False
+        for token in tokens[1:]:
+            if (
+                token not in operators
+                and filled_tokens[-1] not in operators
+                and filled_tokens[-1] != "not"
+                and not is_phrase
+                and filled_tokens[-1] != "("
+                and token != ")"
             ):
                 filled_tokens.append("and")
-
-        end = True
-        for i, token in enumerate(reversed(filled_tokens)):
-            if (token in operators or token == "not") and end == True:
-                filled_tokens.remove(token)
-            else:
-                end = False
-
+            if token == '"':
+                is_phrase = not is_phrase
+            filled_tokens.append(token)
         return filled_tokens
 
+    def _remove_in_phrase_ands(self, tokens: List[str]) -> List[str]:
+        """
+        Remove 'and' operators that are inside phrases (between quotation marks).
 
-if __name__ == "__main__":
-    tokenizer = Tokenizer()
-    # query = 'not tree and ( rock or water ) and "new york city"'
-    # print(query)
-    # q = Query(query, tokenizer)
-    # print(q)
-
-    query = 'not not ( tree and rock ) or water and "new york city"'
-    print(query)
-    q = Query(query, tokenizer)
-    print(q)
-
-    # query = "not not root and not tree"
-    # print(query)
-    # q = Query(query, tokenizer)
-    # print(q)
-
-    # query = 'not tree and rock or water and "new york city"'
-    # print(query)
-    # q = Query(query, tokenizer)
-    # print(q)
+        Args:
+            tokens (List[str]): A list of tokens representing the query.
+        Returns:
+            List[str]: A list of tokens with 'and' operators inside phrases removed.
+        """
+        cleaned_tokens = []
+        is_phrase = False
+        operators = {"and", "or"}
+        for token in tokens:
+            if token == '"':
+                is_phrase = not is_phrase
+            if token in operators and is_phrase:
+                continue
+            cleaned_tokens.append(token)
+        return cleaned_tokens
