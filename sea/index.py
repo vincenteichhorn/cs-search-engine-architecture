@@ -56,10 +56,28 @@ class Index:
 
         def evaluate_node(node: Node) -> Tuple[PostingList, bool]:
             if node.left is None and node.right is None:
-                return (
-                    self._index.get(node.value, PostingList(key=lambda doc: doc.id)).clone(),
-                    node.is_not,
-                )
+                if isinstance(node.value, list):
+                    result = self._index.get(node.value[0]).clone()
+                    previous_token = node.value[0]
+                    for token in node.value[1:]:
+                        other_posting_list = self._index.get(token)
+                        result.positional_intersection(
+                            other_posting_list, previous_token, token
+                        )
+                        previous_token = token
+                    return result, False
+
+                else:
+                    return (
+                        self._index.get(
+                            node.value, PostingList(key=lambda doc: doc.id)
+                        ).clone(),
+                        False,
+                    )
+
+            if node.value == "not":
+                right_postings, right_is_not = evaluate_node(node.right)
+                return right_postings, not right_is_not
 
             left_postings, left_is_not = evaluate_node(node.left)
             right_postings, right_is_not = evaluate_node(node.right)
