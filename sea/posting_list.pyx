@@ -218,6 +218,23 @@ cdef class PostingList:
         new_list._items = self._items.copy()
         return new_list
 
+    @classmethod
+    def from_list(cls, list items, object key=None, sorted=False):
+        """
+        Creates a PostingList from a given list of items.
+        Arguments:
+            items (list): A list of items to initialize the PostingList with.
+            key (callable, optional): A function to extract a comparison key from each item. Defaults to None.
+        Returns:
+            PostingList: A new PostingList instance containing the provided items.
+        """
+        cdef PostingList new_list = cls(key)
+        if not sorted:
+            for item in items:
+                new_list.add(item)
+            return new_list
+        new_list._items = items.copy()
+        return new_list
 
     def __len__(self):
         return len(self._items)
@@ -226,7 +243,7 @@ cdef class PostingList:
         return iter(self._items)
 
     def __repr__(self) -> str:
-        return f"SortedSet({self._items})"
+        return f"PostingList({self._items})"
     
     def __getitem__(self, int index):
         return self._items[index]

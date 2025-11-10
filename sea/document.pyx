@@ -29,6 +29,36 @@ cdef class Document:
         self._tokenize()
         self._count_tokens()
 
+    def get_token_positions(self, token: str) -> List[int]:
+        """
+        Returns the list of positions for a given token in the document.
+
+        Arguments:
+            token (str): The token to retrieve positions for.
+
+        Returns:
+            List[int]: A list of positions where the token appears in the document.
+        """
+        if self.token_positions is not None and token in self.token_positions:
+            return self.token_positions[token]
+        else:
+            return []
+    
+    def get_term_frequency(self, token: str) -> int:
+        """
+        Returns the frequency of a given token in the document.
+
+        Arguments:
+            token (str): The token to retrieve frequency for.
+
+        Returns:
+            int: The frequency of the token in the document.
+        """
+        if self.token_counts is not None and token in self.token_counts:
+            return self.token_counts[token]
+        else:
+            return 0
+
     def __repr__(self):
         return f"Document(id={self.id}, title={self.title}, url={self.url})"
 
