@@ -58,7 +58,7 @@ class Tokenizer:
         Returns:
             List[str]: A list of token strings extracted from the input text.
         """
-        tokenizer = RegexTokenizer(expression=r'[\w]+|[()"]')
+        tokenizer = RegexTokenizer(expression=r'[\w]+|[()"]')  # type: ignore
         token_stream = tokenizer(text)
 
         def StopFilter(tokens, stop_words):
@@ -93,7 +93,7 @@ class Tokenizer:
             token_stream = StopFilter(token_stream, self.stop_words)
 
         token_stream = StemmerFilter(token_stream)
-        return [t.text for t in token_stream]
+        return [t.text for t in token_stream]  # type: ignore
 
     def tokenize_document(self, document: Document) -> List[str]:
         """

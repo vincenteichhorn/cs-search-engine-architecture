@@ -51,13 +51,12 @@ class Engine:
         with open(os.path.join(self.index_path, "part0/posting_lists.bin"), "rb") as f:
             f.seek(offset)
             posting_list_bytes = f.read(length)
-            postings = []
-            posting_offset = 0
-            while posting_offset < length:
-                posting, posting_length = Posting.deserialize(posting_list_bytes[posting_offset:])
-                postings.append(posting)
-                posting_offset += posting_length
-            return PostingList.from_list(postings, key=lambda pst: pst.doc_id)
+        postings = []
+        remainder_bytes = posting_list_bytes
+        while int.from_bytes(remainder_bytes, "big") != 0:
+            posting, remainder_bytes = Posting.deserialize(remainder_bytes)
+            postings.append(posting)
+        return PostingList.from_list(postings, key=lambda pst: pst.doc_id)
 
     def search(self, query: Query) -> List[Document]:
         """

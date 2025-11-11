@@ -22,6 +22,18 @@ class Indexer:
         self.posting_lists_file_name = "posting_lists.bin"
         self.posting_lists_index_file_name = "posting_lists_index.bin"
 
+        if os.path.exists(os.path.join(self.save_dir, self.documents_file_name)):
+            os.remove(os.path.join(self.save_dir, self.documents_file_name))
+        if os.path.exists(os.path.join(self.save_dir, self.document_index_file_name)):
+            os.remove(os.path.join(self.save_dir, self.document_index_file_name))
+
+        for item in os.listdir(self.save_dir):
+            item_path = os.path.join(self.save_dir, item)
+            if os.path.isdir(item_path) and item.startswith("part"):
+                for file in os.listdir(item_path):
+                    os.remove(os.path.join(item_path, file))
+                os.rmdir(item_path)
+
     def add_document(self, document: Document):
 
         self.documents.append(document)
@@ -48,11 +60,7 @@ class Indexer:
             ) as doc_index_file,
         ):
 
-            doc_file_length = doc_file.tell()
-            doc_index_file_length = doc_index_file.tell()
-            offset = doc_file_length
-            doc_file.seek(doc_file_length)
-            doc_index_file.seek(doc_index_file_length)
+            offset = doc_file.tell()
             for doc in self.documents:
                 doc_bytes = doc.serialize()
                 doc_file.write(doc_bytes)

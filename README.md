@@ -33,5 +33,9 @@ or
 - `sea/`: Main package containing source code.
 
 ## TODO
-query "the", query "and"
-query "cat cat cat", positionen die wir schon benutzt haben nicht nochmal benutzen
+- query "the", query "and"
+- query "cat cat cat", positionen die wir schon benutzt haben nicht nochmal benutzen
+- return documents rather than posting lists in engine.py
+- make phrase query work
+- use doc id differences rather than absolute doc ids in posting lists
+- merke partitions
