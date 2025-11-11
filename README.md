@@ -31,3 +31,7 @@ or
 - `data/`: Directory for storing datasets.
 - `build/`: Directory for build artifacts as this project includes Cython modules.
 - `sea/`: Main package containing source code.
+
+## TODO
+query "the", query "and"
+query "cat cat cat", positionen die wir schon benutzt haben nicht nochmal benutzen

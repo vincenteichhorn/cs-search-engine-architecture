@@ -1,46 +1,63 @@
 from collections import defaultdict
+import os
+import struct
 from typing import List, Tuple
 
 from tqdm import tqdm
 from sea.posting_list import PostingList
 from sea.document import Document
+from sea.posting import Posting
 from sea.query import Node, Query
 
 
-class Index:
-    def __init__(self):
+class Engine:
+    def __init__(self, index_path: str):
 
-        def new_posting_list():
+        self.index_path = index_path
+        self.token_dictionary = {}
+        self._load_token_dictionary()
+
+    def _load_token_dictionary(self) -> None:
+        """
+        Load the token dictionary from the index files.
+        """
+
+        with open(os.path.join(self.index_path, "part0/posting_lists_index.bin"), "rb") as f:
+
+            offset = 0
+            while True:
+                token_length_bytes = f.read(4)
+                if not token_length_bytes:
+                    break
+                token_length = struct.unpack(">I", token_length_bytes)[0]
+                token_bytes = f.read(token_length)
+                token = token_bytes.decode("utf-8")
+                posting_list_offset_bytes = f.read(4)
+                posting_list_offset = struct.unpack(">I", posting_list_offset_bytes)[0]
+                posting_list_length_bytes = f.read(4)
+                posting_list_length = struct.unpack(">I", posting_list_length_bytes)[0]
+                self.token_dictionary[token] = (posting_list_offset, posting_list_length)
+
+    def _get_postings(self, token: str) -> PostingList:
+        """
+        Retrieve the posting list for a given token from the index files.
+        Args:
+            token (str): The token to retrieve the posting list for.
+        """
+        if token not in self.token_dictionary:
             return PostingList(key=lambda doc: doc.id)
 
-        self._index = defaultdict(new_posting_list)
-        self._doc_counts = defaultdict(int)
-        self._all_docs = PostingList(key=lambda doc: doc.id)
-
-    def add_document(self, document: Document) -> None:
-        """
-        Add a single document to the index.
-
-        Args:
-            document (Document): The Document object to be added to the index.
-        """
-        if document.tokens is None:
-            raise ValueError("Document must be tokenized before adding to index.")
-        for token in document.tokens:
-            self._index[token].add(document)
-            self._all_docs.add(document)
-            self._doc_counts[token] += 1
-
-    def add_documents(self, documents: List[Document], verbose: bool = False) -> None:
-        """
-        Add multiple documents to the index.
-
-        Args:
-            documents (List[Document]): A list of Document objects to be added to the index.
-            verbose (bool): If True, print progress messages.
-        """
-        for document in tqdm(documents, disable=not verbose, desc="Indexing documents"):
-            self.add_document(document)
+        offset, length = self.token_dictionary[token]
+        with open(os.path.join(self.index_path, "part0/posting_lists.bin"), "rb") as f:
+            f.seek(offset)
+            posting_list_bytes = f.read(length)
+            postings = []
+            posting_offset = 0
+            while posting_offset < length:
+                posting, posting_length = Posting.deserialize(posting_list_bytes[posting_offset:])
+                postings.append(posting)
+                posting_offset += posting_length
+            return PostingList.from_list(postings, key=lambda pst: pst.doc_id)
 
     def search(self, query: Query) -> List[Document]:
         """
@@ -57,14 +74,10 @@ class Index:
         def evaluate_node(node: Node) -> Tuple[PostingList, bool]:
             if node.left is None and node.right is None:
                 if isinstance(node.value, list):
-                    result = self._index.get(
-                        node.value[0], PostingList(key=lambda doc: doc.id)
-                    ).clone()
+                    result = self._get_postings(node.value[0]).clone()
                     previous_token = node.value[0]
                     for token in node.value[1:]:
-                        other_posting_list = self._index.get(
-                            token, PostingList(key=lambda doc: doc.id)
-                        )
+                        other_posting_list = self._get_postings(token)
                         result.positional_intersection(
                             other_posting_list, previous_token, token
                         ).clone()
@@ -73,7 +86,7 @@ class Index:
 
                 else:
                     return (
-                        self._index.get(node.value, PostingList(key=lambda doc: doc.id)).clone(),
+                        self._get_postings(node.value).clone(),
                         False,
                     )
 
@@ -116,9 +129,7 @@ class Index:
 
         results, is_not = evaluate_node(query.root)
         if is_not:
-            results = self._all_docs.clone().difference(results)
+            raise NotImplementedError("NOT operator at the root is not supported yet.")
+            # results = self._all_docs.clone().difference(results)
 
         return results
-
-    def __repr__(self):
-        return f"Index(num_terms={len(self._index)})"

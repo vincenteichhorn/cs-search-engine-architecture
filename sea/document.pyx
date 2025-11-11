@@ -1,5 +1,8 @@
 from collections import defaultdict
 from typing import List
+from sea.tokenizer import Tokenizer
+import struct
+from sea.posting import Posting
 
 cdef int NEXT_ID = 1
 
@@ -13,7 +16,7 @@ cdef class Document:
     cdef public object token_counts
     cdef public object token_positions
 
-    def __cinit__(self, title, url, body, tokenizer):
+    def __cinit__(self, title, url, body, tokenizer: Tokenizer = None):
         self.title = title
         self.url = url
         self.body = body
@@ -25,9 +28,10 @@ cdef class Document:
         self.token_counts = None
         self.token_positions = None
 
-    def __init__(self, title, url, body, tokenizer):
-        self._tokenize()
-        self._count_tokens()
+    def __init__(self, title, url, body, tokenizer: Tokenizer = None):
+        if tokenizer is not None:
+            self._tokenize()
+            self._count_tokens()
 
     def get_token_positions(self, token: str) -> List[int]:
         """
@@ -89,3 +93,68 @@ cdef class Document:
         else:
             raise ValueError("Document must be tokenized before counting tokens.")
 
+    cpdef bytearray serialize(self):
+        """
+        Serializes the Document into a bytearray.
+        """
+        cdef bytearray data = bytearray()
+        cdef bytes title_bytes = self.title.encode('utf-8')
+        cdef bytes url_bytes = self.url.encode('utf-8')
+        cdef bytes body_bytes = self.body.encode('utf-8')
+
+        data.extend(struct.pack('>I', self.id))
+        data.extend(struct.pack('>I', len(title_bytes)))
+        data.extend(title_bytes)
+        data.extend(struct.pack('>I', len(url_bytes)))
+        data.extend(url_bytes)
+        data.extend(struct.pack('>I', len(body_bytes)))
+        data.extend(body_bytes)
+
+        return data
+
+    @classmethod
+    def deserialize(cls, bytearray data):
+        """
+        Deserializes a bytearray into a Document.
+        """
+        cdef Py_ssize_t offset = 0
+        cdef int length
+        cdef bytearray title_bytes
+        cdef bytearray url_bytes
+        cdef bytearray body_bytes
+        cdef str title
+        cdef str url
+        cdef str body
+        cdef int id
+
+        id = struct.unpack('>I', data[offset:offset+4])[0]
+        offset += 4
+
+        length = struct.unpack('>I', data[offset:offset+4])[0]
+        offset += 4
+        title_bytes = data[offset:offset+length]
+        offset += length
+
+        title = title_bytes.decode('utf-8')
+        length = struct.unpack('>I', data[offset:offset+4])[0]
+        offset += 4
+        url_bytes = data[offset:offset+length]
+        offset += length
+
+        url = url_bytes.decode('utf-8')
+        length = struct.unpack('>I', data[offset:offset+4])[0]
+        offset += 4
+        body_bytes = data[offset:offset+length]
+        body = body_bytes.decode('utf-8')
+
+        doc = cls(title, url, body, None)
+        doc.id = id
+        global NEXT_ID
+        NEXT_ID -= 1 
+        return doc
+
+    cpdef object get_posting(self, str token):
+        """
+        Returns a Posting object for the given token in this document.
+        """
+        return Posting(self.id, self.get_token_positions(token))
