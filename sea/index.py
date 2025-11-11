@@ -111,6 +111,8 @@ class Index:
 
                 else:
                     return left_postings.intersection(right_postings), True
+            else:
+                raise ValueError(f"Unknown operator: {node.value}")
 
         results, is_not = evaluate_node(query.root)
         if is_not:
