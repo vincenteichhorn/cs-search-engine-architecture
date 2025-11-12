@@ -22,7 +22,9 @@ class Engine:
         Load the token dictionary from the index files.
         """
 
-        with open(os.path.join(self.index_path, "part0/posting_lists_index.bin"), "rb") as f:
+        with open(
+            os.path.join(self.index_path, "part0/posting_lists_index.bin"), "rb"
+        ) as f:
 
             offset = 0
             while True:
@@ -36,7 +38,10 @@ class Engine:
                 posting_list_offset = struct.unpack(">I", posting_list_offset_bytes)[0]
                 posting_list_length_bytes = f.read(4)
                 posting_list_length = struct.unpack(">I", posting_list_length_bytes)[0]
-                self.token_dictionary[token] = (posting_list_offset, posting_list_length)
+                self.token_dictionary[token] = (
+                    posting_list_offset,
+                    posting_list_length,
+                )
 
     def _get_postings(self, token: str) -> PostingList:
         """
@@ -70,6 +75,19 @@ class Engine:
         if query.root is None:
             return []
 
+        def contains_phrase(first_posting, second_posting, k=1):
+            i = j = 0
+            while i < len(first_posting.positions) and j < len(
+                second_posting.positions
+            ):
+                if first_posting.positions[i] + k == second_posting.positions[j]:
+                    return True
+                elif first_posting.positions[i] + k < second_posting.positions[j]:
+                    i += 1
+                else:
+                    j += 1
+            return False
+
         def evaluate_node(node: Node) -> Tuple[PostingList, bool]:
             if node.left is None and node.right is None:
                 if isinstance(node.value, list):
@@ -77,8 +95,8 @@ class Engine:
                     previous_token = node.value[0]
                     for token in node.value[1:]:
                         other_posting_list = self._get_postings(token)
-                        result.positional_intersection(
-                            other_posting_list, previous_token, token
+                        result.intersection(
+                            other_posting_list, lambda a, b: contains_phrase(a, b, k=1)
                         ).clone()
                         previous_token = token
                     return result, False

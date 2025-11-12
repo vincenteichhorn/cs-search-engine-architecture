@@ -35,7 +35,7 @@ cdef class PostingList:
 
         self._items.insert(lo, item)
 
-    cpdef PostingList intersection(self, PostingList other):
+    cpdef PostingList intersection(self, PostingList other, object additional_constraint = None):
         """
         Returns a new PostingList that is the intersection of this list and another.
 
@@ -63,48 +63,14 @@ cdef class PostingList:
             elif key1 > key2:
                 j += 1
             else:
-                new_items.append(item1)
+                if additional_constraint(item1, item2) or additional_constraint is None:
+                    new_items.append(item2)
                 i += 1
                 j += 1
 
         self._items = new_items
         return self
 
-    cpdef PostingList positional_intersection(self, PostingList other, str self_token, str other_token, int k=1):
-        """
-        Returns a new PostingList that is the intersection of this list and another.
-
-        Arguments:
-            other (PostingList): Another PostingList to intersect with.
-        
-        Returns:
-            PostingList: A new PostingList containing items present in both lists.
-        """
-        cdef list new_items = []
-        cdef int i = 0
-        cdef int j = 0
-        cdef int n = len(self._items)
-        cdef int m = len(other._items)
-        cdef object item1, item2, key1, key2
-
-        while i < n and j < m:
-            item1 = self._items[i]
-            item2 = other._items[j]
-            key1 = item1 if self._key is None else self._key(item1)
-            key2 = item2 if other._key is None else other._key(item2)
-
-            if key1 < key2:
-                i += 1
-            elif key1 > key2:
-                j += 1
-            else:
-                if self.contains_phrase(item1, self_token, other_token, k):
-                    new_items.append(item1)
-                i += 1
-                j += 1
-
-        self._items = new_items
-        return self
 
     cpdef int contains_phrase(self, object item, str self_token, str other_token, int k=1):
         """

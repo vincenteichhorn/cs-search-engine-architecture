@@ -12,16 +12,16 @@ def main():
 
     tokenizer = Tokenizer()
 
-    documents = load_documents(
-        "./data/msmarco-docs.tsv.gz", tokenizer, max_documents=MAX_DOCUMENTS
-    )
-    print(len(documents), "documents loaded.")
+    # documents = load_documents(
+    #     "./data/msmarco-docs.tsv.gz", tokenizer, max_documents=MAX_DOCUMENTS
+    # )
+    # print(len(documents), "documents loaded.")
 
-    indexer = Indexer("./data/index", partition_size=1500)
-    for document in tqdm(documents, desc="Indexing documents"):
-        indexer.add_document(document)
-    indexer.flush()
-    del indexer
+    # indexer = Indexer("./data/index", partition_size=1500)
+    # for document in tqdm(documents, desc="Indexing documents"):
+    #     indexer.add_document(document)
+    # indexer.flush()
+    # del indexer
 
     engine = Engine("./data/index")
     while True:
