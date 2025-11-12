@@ -28,8 +28,10 @@ def main():
         query_text = input("Enter your search query: ")
         query = Query(query_text, tokenizer)
         print(query)
-        results = engine.search(query)
+        results = engine.search(query, limit=10)
         print(f"Found {len(results)} results:")
+        for doc in results:
+            print(doc)
 
 
 if __name__ == "__main__":

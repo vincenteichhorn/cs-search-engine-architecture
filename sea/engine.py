@@ -22,9 +22,7 @@ class Engine:
         Load the token dictionary from the index files.
         """
 
-        with open(
-            os.path.join(self.index_path, "part0/posting_lists_index.bin"), "rb"
-        ) as f:
+        with open(os.path.join(self.index_path, "part0/posting_lists_index.bin"), "rb") as f:
 
             offset = 0
             while True:
@@ -63,7 +61,47 @@ class Engine:
             postings.append(posting)
         return PostingList.from_list(postings, key=lambda pst: pst.doc_id)
 
-    def search(self, query: Query) -> List[Document]:
+    def _get_document(self, doc_id: int) -> Document:
+
+        with (
+            open(os.path.join(self.index_path, "document_index.bin"), "rb") as doc_index_file,
+            open(os.path.join(self.index_path, "documents.bin"), "rb") as doc_file,
+        ):
+            index_offset = (doc_id - 1) * 8
+            doc_index_file.seek(index_offset)
+            offset_bytes = doc_index_file.read(4)
+            offset = struct.unpack(">I", offset_bytes)[0]
+            length_bytes = doc_index_file.read(4)
+            length = struct.unpack(">I", length_bytes)[0]
+            doc_file.seek(offset)
+            doc_bytes = doc_file.read(length)
+            doc = Document.deserialize(bytearray(doc_bytes))
+            return doc
+
+    def _get_not_documents(self, exclude_ids: List[int], limit: int = 10):
+
+        index_offset = 0
+        docs = []
+
+        with (
+            open(os.path.join(self.index_path, "document_index.bin"), "rb") as doc_index_file,
+            open(os.path.join(self.index_path, "documents.bin"), "rb") as doc_file,
+        ):
+            while len(docs) < limit:
+                doc_index_file.seek(index_offset)
+                offset_bytes = doc_index_file.read(4)
+                offset = struct.unpack(">I", offset_bytes)[0]
+                length_bytes = doc_index_file.read(4)
+                length = struct.unpack(">I", length_bytes)[0]
+                doc_file.seek(offset)
+                doc_bytes = doc_file.read(length)
+                doc = Document.deserialize(bytearray(doc_bytes))
+                if doc.id not in exclude_ids:
+                    docs.append(doc)
+                index_offset += 8
+        return docs
+
+    def search(self, query: Query, limit: int = 10) -> List[Document]:
         """
         Search the index for documents matching the given query tokens.
         Args:
@@ -77,9 +115,7 @@ class Engine:
 
         def contains_phrase(first_posting, second_posting, k=1):
             i = j = 0
-            while i < len(first_posting.positions) and j < len(
-                second_posting.positions
-            ):
+            while i < len(first_posting.positions) and j < len(second_posting.positions):
                 if first_posting.positions[i] + k == second_posting.positions[j]:
                     return True
                 elif first_posting.positions[i] + k < second_posting.positions[j]:
@@ -145,8 +181,13 @@ class Engine:
                 raise ValueError(f"Unknown operator: {node.value}")
 
         results, is_not = evaluate_node(query.root)
-        if is_not:
-            raise NotImplementedError("NOT operator at the root is not supported yet.")
-            # results = self._all_docs.clone().difference(results)
 
-        return results
+        if is_not:
+            return self._get_not_documents([res.doc_id for res in results], limit)
+
+        docs = []
+        for res in results:
+            if len(docs) == limit:
+                break
+            docs.append(self._get_document(res.doc_id))
+        return docs
