@@ -1,17 +1,22 @@
-from typing import List
+from typing import List, Union
 from sea.tokenizer import Tokenizer
 
 
 class Node:
 
-    def __init__(self, value: str, left: "Node" = None, right: "Node" = None):
+    def __init__(
+        self,
+        value: Union[List[str], str],
+        left: Union["Node", None] = None,
+        right: Union["Node", None] = None,
+    ):
         self.left = left
         self.right = right
         self.value = value
 
     def __repr__(self):
 
-        def print_node(node: "Node", depth: int = 0) -> str:
+        def print_node(node: Union["Node", None], depth: int = 0) -> str:
             if node is None:
                 return ""
             result = "  " * depth

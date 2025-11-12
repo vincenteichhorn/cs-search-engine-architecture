@@ -1,10 +1,8 @@
-import gzip
 from tqdm import tqdm
-from sea.document import Document
+from sea.tokenizer import Tokenizer
 from sea.engine import Engine
 from sea.indexer import Indexer
 from sea.query import Query
-from sea.tokenizer import Tokenizer
 from sea.util.load import load_documents
 
 MAX_DOCUMENTS = 1000

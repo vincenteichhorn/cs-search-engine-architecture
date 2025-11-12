@@ -1,7 +1,11 @@
 from typing import List
 from whoosh.analysis import RegexTokenizer
 from nltk.stem import PorterStemmer
-from sea.document import Document
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from sea.document import Document
 
 
 class Tokenizer:
@@ -95,7 +99,7 @@ class Tokenizer:
         token_stream = StemmerFilter(token_stream)
         return [t.text for t in token_stream]  # type: ignore
 
-    def tokenize_document(self, document: Document) -> List[str]:
+    def tokenize_document(self, document: "Document") -> List[str]:
         """
         Tokenize the content of a document, including its body and title.
 

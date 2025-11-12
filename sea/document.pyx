@@ -1,8 +1,8 @@
+from sea.posting import Posting
+from sea.tokenizer import Tokenizer
 from collections import defaultdict
 from typing import List
-from sea.tokenizer import Tokenizer
 import struct
-from sea.posting import Posting
 
 cdef int NEXT_ID = 1
 
