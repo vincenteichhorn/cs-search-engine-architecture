@@ -1,3 +1,4 @@
+import time
 from tqdm import tqdm
 from sea.tokenizer import Tokenizer
 from sea.engine import Engine
@@ -5,20 +6,19 @@ from sea.indexer import Indexer
 from sea.query import Query
 from sea.util.load import load_documents
 
-MAX_DOCUMENTS = 100
+MAX_DOCUMENTS = 5000
 
 
 def main():
 
     tokenizer = Tokenizer()
 
-    # documents = load_documents(
-    #     "./data/msmarco-docs.tsv.gz", tokenizer, max_documents=MAX_DOCUMENTS
-    # )
-    # print(len(documents), "documents loaded.")
-
-    # indexer = Indexer("./data/index", partition_size=1500)
-    # for document in tqdm(documents, desc="Indexing documents"):
+    # indexer = Indexer("./data/index", partition_size=MAX_DOCUMENTS + 1)
+    # for document in tqdm(
+    #     load_documents("./data/msmarco-docs.tsv.gz", tokenizer, max_documents=MAX_DOCUMENTS),
+    #     desc="Indexing documents",
+    #     total=MAX_DOCUMENTS,
+    # ):
     #     indexer.add_document(document)
     # indexer.flush()
     # del indexer
@@ -28,8 +28,10 @@ def main():
         query_text = input("Enter your search query: ")
         query = Query(query_text, tokenizer)
         print(query)
+        start = time.time()
         results = engine.search(query, limit=10)
-        print(f"Found {len(results)} results:")
+        end = time.time()
+        print(f"Found {len(results)} results in {(end - start)*1000:.4f} milliseconds:")
         for doc in results:
             print(doc)
 

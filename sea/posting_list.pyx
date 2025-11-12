@@ -63,7 +63,7 @@ cdef class PostingList:
             elif key1 > key2:
                 j += 1
             else:
-                if additional_constraint(item1, item2) or additional_constraint is None:
+                if additional_constraint is None or additional_constraint(item1, item2):
                     new_items.append(item2)
                 i += 1
                 j += 1

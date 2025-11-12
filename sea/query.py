@@ -75,8 +75,7 @@ class Query:
                 while (
                     ops
                     and ops[-1] in self.operator_precedence
-                    and self.operator_precedence[ops[-1]]
-                    > self.operator_precedence[token]
+                    and self.operator_precedence[ops[-1]] > self.operator_precedence[token]
                 ):
                     op = ops.pop()
                     right = vals.pop()

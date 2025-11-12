@@ -1,7 +1,7 @@
 from collections import defaultdict
 import os
 import struct
-from typing import List, Tuple
+from typing import List, Tuple, Union
 
 from tqdm import tqdm
 from sea.posting_list import PostingList
@@ -124,17 +124,18 @@ class Engine:
                     j += 1
             return False
 
-        def evaluate_node(node: Node) -> Tuple[PostingList, bool]:
+        def evaluate_node(node: Union[Node, None]) -> Tuple[PostingList, bool]:
+            if node is None:
+                return PostingList(key=lambda pst: pst.doc_id), False
+
             if node.left is None and node.right is None:
                 if isinstance(node.value, list):
                     result = self._get_postings(node.value[0]).clone()
-                    previous_token = node.value[0]
                     for token in node.value[1:]:
                         other_posting_list = self._get_postings(token)
                         result.intersection(
                             other_posting_list, lambda a, b: contains_phrase(a, b, k=1)
                         ).clone()
-                        previous_token = token
                     return result, False
 
                 else:
