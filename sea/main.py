@@ -7,14 +7,16 @@ from sea.query import Query
 from sea.tokenizer import Tokenizer
 from sea.util.load import load_documents
 
-MAX_DOCUMENTS = 1000
+MAX_DOCUMENTS = 100
 
 
 def main():
 
     tokenizer = Tokenizer()
 
-    documents = load_documents("./data/msmarco-docs.tsv.gz", tokenizer, max_documents=MAX_DOCUMENTS)
+    documents = load_documents(
+        "./data/msmarco-docs.tsv.gz", tokenizer, max_documents=MAX_DOCUMENTS
+    )
     print(len(documents), "documents loaded.")
 
     indexer = Indexer("./data/index", partition_size=1500)

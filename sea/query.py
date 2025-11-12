@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Union
 from sea.tokenizer import Tokenizer
 
 
@@ -31,7 +31,7 @@ class Query:
         self.operator_precedence = {"or": 1, "and": 2, "not": 3}
         self.root = self._parse_query(input)
 
-    def _parse_query(self, input: str) -> Node:
+    def _parse_query(self, input: str) -> Union[Node, None]:
         """
         Parse the input query string into a binary tree structure representing the query.
 
@@ -42,6 +42,16 @@ class Query:
             Node: The root node of the binary tree representing the query.
         """
         tokens = self.tokenizer.tokenize(input, is_query=True)
+
+        if tokens == []:
+            return None
+        number_tokens = 0
+        for token in tokens:
+            if token not in self.operator_precedence.keys() and token != '"':
+                number_tokens += 1
+        if number_tokens == 0:
+            return None
+
         filled_tokens = self._remove_surrounding_operators(tokens)
         filled_tokens = self._remove_consecutive_operators(filled_tokens)
         filled_tokens = self._fill_in_implicit_ands(filled_tokens)
@@ -60,7 +70,8 @@ class Query:
                 while (
                     ops
                     and ops[-1] in self.operator_precedence
-                    and self.operator_precedence[ops[-1]] > self.operator_precedence[token]
+                    and self.operator_precedence[ops[-1]]
+                    > self.operator_precedence[token]
                 ):
                     op = ops.pop()
                     right = vals.pop()
