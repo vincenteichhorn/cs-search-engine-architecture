@@ -12,27 +12,40 @@ cdef class BitWriter:
         self.bits_filled = 0
         self.total_bits_written = 0
 
-    cpdef void write_bits(self, int value, int bit_count):
-        """Writes the lowest `bit_count` bits of `value` to the buffer."""
-        cdef int i, bit
+    cpdef void write_bits(self, unsigned int value, int bit_count):
+        """
+        Writes the lowest `bit_count` bits of `value` to the buffer.
+        Bits are written MSB-first.
+        """
+        cdef int i
+        cdef unsigned int bit
+
         for i in range(bit_count - 1, -1, -1):
-            bit = (value >> i) & 1 # Get the i-th bit
-            self.current_byte = (self.current_byte << 1) | bit # Shift left and add the bit
+            bit = (value >> i) & 1
+            self.current_byte = (self.current_byte << 1) | bit
             self.bits_filled += 1
             self.total_bits_written += 1
+
             if self.bits_filled == 8:
                 self.buffer.append(self.current_byte)
                 self.current_byte = 0
                 self.bits_filled = 0
 
     cpdef void flush(self):
+        """
+        Writes any remaining bits to the buffer, padding the rest of the byte with zeros.
+        """
         if self.bits_filled > 0:
-            self.current_byte <<= 8 - self.bits_filled
-            self.buffer.append(self.current_byte)
+            # shift the remaining bits to the MSB of the byte
+            self.current_byte <<= (8 - self.bits_filled)
+            self.buffer.append(self.current_byte & 0xFF)
             self.current_byte = 0
             self.bits_filled = 0
 
     cpdef bytes get_bytes(self):
+        """
+        Flushes and returns the contents of the buffer as immutable bytes.
+        """
         self.flush()
         return bytes(self.buffer)
 
@@ -65,21 +78,7 @@ cdef class BitReader:
                 self.bit_index = 0
                 self.byte_index += 1
         return value
-    
-    cpdef int skip_bits(self, int bit_count):
-        cdef int bits_skipped = 0
-        cdef Py_ssize_t data_len = len(self.data)
 
-        for _ in range(bit_count):
-            if self.byte_index >= data_len:
-                raise EOFError("No more bits to skip")
-
-            self.bit_index += 1
-            bits_skipped += 1
-            if self.bit_index == 8:
-                self.bit_index = 0
-                self.byte_index += 1
-        return bits_skipped
 
     cpdef bytes bytes_remaining(self):
         cdef Py_ssize_t start
@@ -88,6 +87,10 @@ cdef class BitReader:
         else:
             start = self.byte_index + 1
         return self.data[start:]
+    
+    cpdef int bits_remaining(self):
+        cdef Py_ssize_t data_len = len(self.data)
+        return (data_len - self.byte_index) * 8 - self.bit_index
 
 
 cpdef int encode_gamma(BitWriter writer, int number):
@@ -171,10 +174,13 @@ cpdef bytes pack_gammas(list numbers):
     for b in inner_writer.get_bytes():
         data_writer.write_bits(b, 8)
 
-    return data_writer.get_bytes()
+    print(data_writer.current_byte, data_writer.bits_filled, len(data_writer.buffer), "before flush")
+    byts = data_writer.get_bytes()
+    print(f"Packed {len(numbers)} numbers into {len(byts)}, total bits: {total_bits}")
+    return byts
 
 
-cpdef tuple unpack_gammas(bytes data, int read_n=-1):
+cpdef list unpack_gammas(object reader, int read_n=-1):
     """Unpacks a bytes object containing gamma-coded integers into a list of integers.
     The bytes are unpacked as follows:
     - First, the total number of bits used to encode all integers is gamma-decoded.
@@ -194,27 +200,19 @@ cpdef tuple unpack_gammas(bytes data, int read_n=-1):
         tuple: A tuple containing the list of decoded integers and any remaining bytes from the input which were not used.
     """
 
-    cdef BitReader reader = BitReader(data)
-    cdef int total_bits, bits_used
-    total_bits, bits_used = decode_gamma(reader)
-
-    cdef int bytes_needed = <int>ceil(total_bits / 8.0)
-    cdef bytearray inner_bytes = bytearray()
-    cdef int i
-
-    for i in range(bytes_needed):
-        try:
-            inner_bytes.append(reader.read_bits(8))
-        except EOFError:
-            break
-
-    cdef BitReader inner_reader = BitReader(bytes(inner_bytes))
+    cdef int total_bits
+    cdef int bits_read = 0
     cdef list numbers = []
-    cdef int n, used, bits_read = 0
-    while bits_read < total_bits and (read_n == -1 or len(numbers) < read_n):
-        n, used = decode_gamma(inner_reader)
-        numbers.append(n)
-        bits_read += used
+    bits_needed, _ = decode_gamma(reader)
 
-    remainder = reader.bytes_remaining()
-    return numbers, remainder
+    print(f"Decoding {bits_needed} bits using gamma coding")
+    cdef int no_ceil_bits = 8 - (bits_needed % 8) + 1
+
+    while bits_read < bits_needed and (read_n == -1 or len(numbers) < read_n):
+        n, used = decode_gamma(reader)
+        bits_read += used
+        numbers.append(n)
+        
+    reader.read_bits(no_ceil_bits) 
+    print(f"skipped {no_ceil_bits} bits to align to byte boundary")
+    return numbers

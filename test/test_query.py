@@ -9,30 +9,30 @@ def test_query():
         "or": None,
         "not": None,
         "the": None,
-        "apple": Node("apple"),
-        "apple and banana": Node("and", left=Node("apple"), right=Node("banana")),
-        "apple or banana": Node("or", left=Node("apple"), right=Node("banana")),
-        "not apple": Node("not", right=Node("apple")),
-        "apple banana": Node("and", left=Node("apple"), right=Node("banana")),
+        "apple": Node("appl"),
+        "apple and banana": Node("and", left=Node("appl"), right=Node("banana")),
+        "apple or banana": Node("or", left=Node("appl"), right=Node("banana")),
+        "not apple": Node("not", right=Node("appl")),
+        "apple banana": Node("and", left=Node("appl"), right=Node("banana")),
         "apple and banana or cherry": Node(
             "or",
-            left=Node("and", left=Node("apple"), right=Node("banana")),
-            right=Node("cherry"),
+            left=Node("and", left=Node("appl"), right=Node("banana")),
+            right=Node("cherri"),
         ),
         "apple or banana and cherry": Node(
             "or",
-            left=Node("apple"),
-            right=Node("and", left=Node("banana"), right=Node("cherry")),
+            left=Node("appl"),
+            right=Node("and", left=Node("banana"), right=Node("cherri")),
         ),
         "not apple and banana": Node(
             "and",
-            left=Node("not", right=Node("apple")),
+            left=Node("not", right=Node("appl")),
             right=Node("banana"),
         ),
         '"apple banana" and cherry': Node(
             "and",
-            left=Node(["apple", "banana"]),
-            right=Node("cherry"),
+            left=Node(["appl", "banana"]),
+            right=Node("cherri"),
         ),
         '"and and"': None,
         '""': None,
@@ -42,4 +42,7 @@ def test_query():
         if expected_tree is None:
             assert query.root is None, f"Failed for query: {query_str}"
         else:
+            print(f"Testing query: {query_str}")
+            print(f"Expected tree: {expected_tree}")
+            print(f"Actual tree:   {query.root}")
             assert repr(query.root) == repr(expected_tree), f"Failed for query: {query_str}"

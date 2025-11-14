@@ -33,7 +33,7 @@ def test_posting_list_serialization():
 
     deserialized_postings = []
     remainder = data
-    while int.from_bytes(remainder, "big") != 0:
+    while len(remainder) > 0:
         posting, remainder = Posting.deserialize(remainder)
         deserialized_postings.append(posting)
 
