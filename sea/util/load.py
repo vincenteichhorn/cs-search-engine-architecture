@@ -22,7 +22,10 @@ def load_documents(
     Returns:
         Generator[Document, None, None]: A generator that yields Document objects loaded from the file.
     """
-    with gzip.open(file_path, "rt", encoding="utf-8") as file:
+
+    open_file_fun = gzip.open if file_path.endswith(".gz") else open
+
+    with open_file_fun(file_path, "rt", encoding="utf-8") as file:
         incomplete_lines = 0
         count = 0
         for line in file:

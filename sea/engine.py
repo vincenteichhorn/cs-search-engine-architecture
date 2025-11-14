@@ -22,7 +22,7 @@ class Engine:
         Load the token dictionary from the index files.
         """
 
-        with open(os.path.join(self.index_path, "part0/posting_lists_index.bin"), "rb") as f:
+        with open(os.path.join(self.index_path, "posting_lists_index.bin"), "rb") as f:
 
             offset = 0
             while True:
@@ -51,7 +51,7 @@ class Engine:
             return PostingList(key=lambda doc: doc.id)
 
         offset, length = self.token_dictionary[token]
-        with open(os.path.join(self.index_path, "part0/posting_lists.bin"), "rb") as f:
+        with open(os.path.join(self.index_path, "posting_lists.bin"), "rb") as f:
             f.seek(offset)
             posting_list_bytes = f.read(length)
         postings = []

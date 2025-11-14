@@ -110,7 +110,7 @@ class Tokenizer:
             List[str]: A list of token strings extracted from the document's content.
         """
         tokens = self.tokenize(document.body)
-        tokens.extend(self.tokenize(document.title))
+        # tokens.extend(self.tokenize(document.title))
         return tokens
 
     def tokenize_query(self, query: str) -> List[str]:

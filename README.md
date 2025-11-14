@@ -46,4 +46,5 @@ or
 
 - query "cat cat cat", positionen die wir schon benutzt haben nicht nochmal benutzen
 - use doc id differences rather than absolute doc ids in posting lists
+- read only doc ids not all positions if not needed
 - merge partitions
