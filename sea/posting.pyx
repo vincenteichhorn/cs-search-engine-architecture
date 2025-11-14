@@ -1,4 +1,5 @@
 from sea.util.gamma import pack_gammas, unpack_gammas
+import time
 
 cdef class Posting:
     cdef public int doc_id
@@ -13,9 +14,12 @@ cdef class Posting:
         return data
 
     @classmethod
-    def deserialize(cls, data):
+    def deserialize(cls, data, only_doc_id=False):
+        cdef int start = time.time()
         cdef list numbers
-        numbers, remainder = unpack_gammas(data)
+        numbers, remainder = unpack_gammas(data, read_n=1 if only_doc_id else -1)
         cdef int doc_id = numbers[0]
-        cdef list position_list = [p-1 for p in numbers[1:]]
+        cdef list position_list = [p-1 for p in numbers[1:]] if not only_doc_id else []
+        cdef int end = time.time()
+        print(f"Deserialized posting for doc_id {doc_id} in {(end - start)*1000:.8f} milliseconds")
         return cls(doc_id, position_list), remainder

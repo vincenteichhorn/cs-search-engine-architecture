@@ -6,22 +6,22 @@ from sea.indexer import Indexer
 from sea.query import Query
 from sea.util.load import load_documents
 
-MAX_DOCUMENTS = 39
+MAX_DOCUMENTS = 100_000
 
 
 def main():
 
     tokenizer = Tokenizer()
 
-    indexer = Indexer("./data/index", partition_size=10)
-    for document in tqdm(
-        load_documents("./data/testing.tsv", tokenizer, max_documents=MAX_DOCUMENTS),
-        desc="Indexing documents",
-        total=MAX_DOCUMENTS,
-    ):
-        indexer.add_document(document)
-    indexer.merge_partitons()
-    del indexer
+    # indexer = Indexer("./data/index", partition_size=MAX_DOCUMENTS // 20)
+    # for document in tqdm(
+    #     load_documents("./data/msmarco-docs.tsv.gz", tokenizer, max_documents=MAX_DOCUMENTS),
+    #     desc="Indexing documents",
+    #     total=MAX_DOCUMENTS,
+    # ):
+    #     indexer.add_document(document)
+    # indexer.merge_partitons()
+    # del indexer
 
     engine = Engine("./data/index")
     while True:

@@ -6,7 +6,7 @@ authors = ["Vincent Eichhorn <vincent.eichhorn@student.hpi.de>", "Alicia Cabreja
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = ">=3.11,<4.0"
+python = ">=3.11,<3.14"
 cython = "^3.1.6"
 whoosh = "^2.7.4"
 tqdm = "^4.67.1"
@@ -18,6 +18,8 @@ matplotlib = "^3.10.7"
 pandas = "^2.3.3"
 pympler = "^1.1"
 memory-profiler = "^0.61.0"
+spacy = "^3.8.9"
+pystemmer = "^3.0.0"
 
 
 [build-system]

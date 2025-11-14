@@ -65,6 +65,21 @@ cdef class BitReader:
                 self.bit_index = 0
                 self.byte_index += 1
         return value
+    
+    cpdef int skip_bits(self, int bit_count):
+        cdef int bits_skipped = 0
+        cdef Py_ssize_t data_len = len(self.data)
+
+        for _ in range(bit_count):
+            if self.byte_index >= data_len:
+                raise EOFError("No more bits to skip")
+
+            self.bit_index += 1
+            bits_skipped += 1
+            if self.bit_index == 8:
+                self.bit_index = 0
+                self.byte_index += 1
+        return bits_skipped
 
     cpdef bytes bytes_remaining(self):
         cdef Py_ssize_t start
@@ -159,7 +174,7 @@ cpdef bytes pack_gammas(list numbers):
     return data_writer.get_bytes()
 
 
-cpdef tuple unpack_gammas(bytes data):
+cpdef tuple unpack_gammas(bytes data, int read_n=-1):
     """Unpacks a bytes object containing gamma-coded integers into a list of integers.
     The bytes are unpacked as follows:
     - First, the total number of bits used to encode all integers is gamma-decoded.
@@ -178,6 +193,7 @@ cpdef tuple unpack_gammas(bytes data):
     Returns:
         tuple: A tuple containing the list of decoded integers and any remaining bytes from the input which were not used.
     """
+
     cdef BitReader reader = BitReader(data)
     cdef int total_bits, bits_used
     total_bits, bits_used = decode_gamma(reader)
@@ -195,7 +211,7 @@ cpdef tuple unpack_gammas(bytes data):
     cdef BitReader inner_reader = BitReader(bytes(inner_bytes))
     cdef list numbers = []
     cdef int n, used, bits_read = 0
-    while bits_read < total_bits:
+    while bits_read < total_bits and (read_n == -1 or len(numbers) < read_n):
         n, used = decode_gamma(inner_reader)
         numbers.append(n)
         bits_read += used

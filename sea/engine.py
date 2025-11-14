@@ -1,6 +1,8 @@
 from collections import defaultdict
+import mmap
 import os
 import struct
+import time
 from typing import List, Tuple, Union
 
 from tqdm import tqdm
@@ -14,6 +16,17 @@ class Engine:
     def __init__(self, index_path: str):
 
         self.index_path = index_path
+
+        self.posting_lists_file = open(os.path.join(self.index_path, "posting_lists.bin"), "rb")
+        self.posting_list_file_mmap = mmap.mmap(
+            self.posting_lists_file.fileno(), 0, access=mmap.ACCESS_READ
+        )
+        self.posting_index_file = open(
+            os.path.join(self.index_path, "posting_lists_index.bin"), "rb"
+        )
+        self.document_index_file = open(os.path.join(self.index_path, "document_index.bin"), "rb")
+        self.documents_file = open(os.path.join(self.index_path, "documents.bin"), "rb")
+
         self.token_dictionary = {}
         self._load_token_dictionary()
 
@@ -22,26 +35,23 @@ class Engine:
         Load the token dictionary from the index files.
         """
 
-        with open(os.path.join(self.index_path, "posting_lists_index.bin"), "rb") as f:
+        while True:
+            token_length_bytes = self.posting_index_file.read(4)
+            if not token_length_bytes:
+                break
+            token_length = struct.unpack(">I", token_length_bytes)[0]
+            token_bytes = self.posting_index_file.read(token_length)
+            token = token_bytes.decode("utf-8")
+            posting_list_offset_bytes = self.posting_index_file.read(4)
+            posting_list_offset = struct.unpack(">I", posting_list_offset_bytes)[0]
+            posting_list_length_bytes = self.posting_index_file.read(4)
+            posting_list_length = struct.unpack(">I", posting_list_length_bytes)[0]
+            self.token_dictionary[token] = (
+                posting_list_offset,
+                posting_list_length,
+            )
 
-            offset = 0
-            while True:
-                token_length_bytes = f.read(4)
-                if not token_length_bytes:
-                    break
-                token_length = struct.unpack(">I", token_length_bytes)[0]
-                token_bytes = f.read(token_length)
-                token = token_bytes.decode("utf-8")
-                posting_list_offset_bytes = f.read(4)
-                posting_list_offset = struct.unpack(">I", posting_list_offset_bytes)[0]
-                posting_list_length_bytes = f.read(4)
-                posting_list_length = struct.unpack(">I", posting_list_length_bytes)[0]
-                self.token_dictionary[token] = (
-                    posting_list_offset,
-                    posting_list_length,
-                )
-
-    def _get_postings(self, token: str) -> PostingList:
+    def _get_postings(self, token: str, positions=False) -> PostingList:
         """
         Retrieve the posting list for a given token from the index files.
         Args:
@@ -51,54 +61,47 @@ class Engine:
             return PostingList(key=lambda doc: doc.id)
 
         offset, length = self.token_dictionary[token]
-        with open(os.path.join(self.index_path, "posting_lists.bin"), "rb") as f:
-            f.seek(offset)
-            posting_list_bytes = f.read(length)
+        posting_list_bytes = self.posting_list_file_mmap[offset : offset + length]
         postings = []
         remainder_bytes = posting_list_bytes
         while int.from_bytes(remainder_bytes, "big") != 0:
-            posting, remainder_bytes = Posting.deserialize(remainder_bytes)
+            posting, remainder_bytes = Posting.deserialize(
+                remainder_bytes, only_doc_id=not positions
+            )
             postings.append(posting)
-        return PostingList.from_list(postings, key=lambda pst: pst.doc_id)
+        posting_list = PostingList.from_list(postings, key=lambda pst: pst.doc_id)
+        return posting_list
 
     def _get_document(self, doc_id: int) -> Document:
 
-        with (
-            open(os.path.join(self.index_path, "document_index.bin"), "rb") as doc_index_file,
-            open(os.path.join(self.index_path, "documents.bin"), "rb") as doc_file,
-        ):
-            index_offset = (doc_id - 1) * 8
-            doc_index_file.seek(index_offset)
-            offset_bytes = doc_index_file.read(4)
-            offset = struct.unpack(">I", offset_bytes)[0]
-            length_bytes = doc_index_file.read(4)
-            length = struct.unpack(">I", length_bytes)[0]
-            doc_file.seek(offset)
-            doc_bytes = doc_file.read(length)
-            doc = Document.deserialize(bytearray(doc_bytes))
-            return doc
+        index_offset = (doc_id - 1) * 8
+        self.document_index_file.seek(index_offset)
+        offset_bytes = self.document_index_file.read(4)
+        offset = struct.unpack(">I", offset_bytes)[0]
+        length_bytes = self.document_index_file.read(4)
+        length = struct.unpack(">I", length_bytes)[0]
+        self.documents_file.seek(offset)
+        doc_bytes = self.documents_file.read(length)
+        doc = Document.deserialize(bytearray(doc_bytes))
+        return doc
 
     def _get_not_documents(self, exclude_ids: List[int], limit: int = 10):
 
         index_offset = 0
         docs = []
 
-        with (
-            open(os.path.join(self.index_path, "document_index.bin"), "rb") as doc_index_file,
-            open(os.path.join(self.index_path, "documents.bin"), "rb") as doc_file,
-        ):
-            while len(docs) < limit:
-                doc_index_file.seek(index_offset)
-                offset_bytes = doc_index_file.read(4)
-                offset = struct.unpack(">I", offset_bytes)[0]
-                length_bytes = doc_index_file.read(4)
-                length = struct.unpack(">I", length_bytes)[0]
-                doc_file.seek(offset)
-                doc_bytes = doc_file.read(length)
-                doc = Document.deserialize(bytearray(doc_bytes))
-                if doc.id not in exclude_ids:
-                    docs.append(doc)
-                index_offset += 8
+        while len(docs) < limit:
+            self.document_index_file.seek(index_offset)
+            offset_bytes = self.document_index_file.read(4)
+            offset = struct.unpack(">I", offset_bytes)[0]
+            length_bytes = self.document_index_file.read(4)
+            length = struct.unpack(">I", length_bytes)[0]
+            self.documents_file.seek(offset)
+            doc_bytes = self.documents_file.read(length)
+            doc = Document.deserialize(bytearray(doc_bytes))
+            if doc.id not in exclude_ids:
+                docs.append(doc)
+            index_offset += 8
         return docs
 
     def search(self, query: Query, limit: int = 10) -> List[Document]:
@@ -132,7 +135,7 @@ class Engine:
                 if isinstance(node.value, list):
                     result = self._get_postings(node.value[0]).clone()
                     for token in node.value[1:]:
-                        other_posting_list = self._get_postings(token)
+                        other_posting_list = self._get_postings(token, positions=True)
                         result.intersection(
                             other_posting_list, lambda a, b: contains_phrase(a, b, k=1)
                         ).clone()
@@ -183,12 +186,13 @@ class Engine:
 
         results, is_not = evaluate_node(query.root)
 
-        if is_not:
-            return self._get_not_documents([res.doc_id for res in results], limit)
-
         docs = []
+        if is_not:
+            docs = self._get_not_documents([res.doc_id for res in results], limit)
+
         for res in results:
             if len(docs) == limit:
                 break
             docs.append(self._get_document(res.doc_id))
+
         return docs

@@ -26,6 +26,10 @@ class Indexer:
             os.remove(os.path.join(self.save_dir, self.documents_file_name))
         if os.path.exists(os.path.join(self.save_dir, self.document_index_file_name)):
             os.remove(os.path.join(self.save_dir, self.document_index_file_name))
+        if os.path.exists(os.path.join(self.save_dir, self.posting_lists_file_name)):
+            os.remove(os.path.join(self.save_dir, self.posting_lists_file_name))
+        if os.path.exists(os.path.join(self.save_dir, self.posting_lists_index_file_name)):
+            os.remove(os.path.join(self.save_dir, self.posting_lists_index_file_name))
 
         for item in os.listdir(self.save_dir):
             item_path = os.path.join(self.save_dir, item)

@@ -8,6 +8,7 @@ To set up the environment, run:
 ```bash
 cd cs-search-engine-architecture
 poetry install
+python3 -m spacy download en_core_web_sm
 ```
 
 To activate the virtual environment, use:

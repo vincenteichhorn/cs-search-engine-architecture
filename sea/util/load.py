@@ -1,8 +1,6 @@
 import gzip
-import struct
-from typing import Generator, List, Tuple, Union
+from typing import Generator
 
-from tqdm import tqdm
 from sea.document import Document
 from sea.tokenizer import Tokenizer
 
