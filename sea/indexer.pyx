@@ -200,7 +200,7 @@ cdef class Indexer:
                     )
                     merged_offset += merged_length
                     merged_length = 0
-                current_token, current_token_bytes = token, token_bytes
+                    current_token, current_token_bytes = token, token_bytes
 
                 merged_posting_file.write(mmaps[pid][offset : offset + length])
                 merged_length += length
