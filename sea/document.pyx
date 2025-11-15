@@ -4,14 +4,49 @@ from collections import defaultdict
 from typing import List
 import struct
 from libc.time cimport clock, CLOCKS_PER_SEC, clock_t
+from libc.stdint cimport uint8_t
+from cpython.unicode cimport PyUnicode_DecodeUTF8
 
 cdef int NEXT_ID = 1
 
+cpdef document_deserialize(const uint8_t[:] data, cls=None):
+    
+    if cls is None:
+        cls = Document
+
+    cdef const uint8_t* data_ptr = &data[0]
+    cdef Py_ssize_t offset = 0
+    cdef int id, length
+    cdef str title, url, body
+
+    id = (data[offset] << 24) | (data[offset + 1] << 16) | (data[offset + 2] << 8) | data[offset + 3]
+    offset += 4
+
+    length = (data[offset] << 24) | (data[offset + 1] << 16) | (data[offset + 2] << 8) | data[offset + 3]
+    offset += 4
+    title = PyUnicode_DecodeUTF8(<char*>(data_ptr + offset), length, NULL)
+    offset += length
+
+    length = (data[offset] << 24) | (data[offset + 1] << 16) | (data[offset + 2] << 8) | data[offset + 3]
+    offset += 4
+    url = PyUnicode_DecodeUTF8(<char*>(data_ptr + offset), length, NULL)
+    offset += length
+
+    length = (data[offset] << 24) | (data[offset + 1] << 16) | (data[offset + 2] << 8) | data[offset + 3]
+    offset += 4
+    body = PyUnicode_DecodeUTF8(<char*>(data_ptr + offset), length, NULL)
+
+    doc = cls(title, url, body, None)
+    doc.id = id
+    global NEXT_ID
+    NEXT_ID -= 1
+    return doc
+
 cdef class Document:
     cdef public int id
-    cdef public object title
-    cdef public object url
-    cdef public object body
+    cdef public str title
+    cdef public str url
+    cdef public str body
     cdef public object tokenizer
     cdef public list tokens
     cdef public object token_positions
@@ -109,39 +144,11 @@ cdef class Document:
         return bytes(data)
 
     @classmethod
-    def deserialize(cls, bytearray data):
+    def deserialize(cls, const uint8_t[:] data):
         """
         Deserialize a bytearray into a Document using struct.unpack_from (avoids slicing).
         """
-        cdef Py_ssize_t offset = 0
-        cdef int id, length
-        cdef bytearray title_bytes, url_bytes, body_bytes
-
-        id = struct.unpack_from('>I', data, offset)[0]
-        offset += 4
-
-        length = struct.unpack_from('>I', data, offset)[0]
-        offset += 4
-        title_bytes = data[offset:offset+length]
-        offset += length
-        title = title_bytes.decode('utf-8')
-
-        length = struct.unpack_from('>I', data, offset)[0]
-        offset += 4
-        url_bytes = data[offset:offset+length]
-        offset += length
-        url = url_bytes.decode('utf-8')
-
-        length = struct.unpack_from('>I', data, offset)[0]
-        offset += 4
-        body_bytes = data[offset:offset+length]
-        body = body_bytes.decode('utf-8')
-
-        doc = cls(title, url, body, None)
-        doc.id = id
-        global NEXT_ID
-        NEXT_ID -= 1
-        return doc
+        return document_deserialize(data)
 
     cpdef object get_posting(self, str token):
         """

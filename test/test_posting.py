@@ -17,7 +17,7 @@ def test_posting_serialization():
     deserialized_posting, _ = Posting.deserialize(data)
 
     assert posting.doc_id == deserialized_posting.doc_id
-    assert posting.positions == deserialized_posting.positions
+    assert posting.positions == list(deserialized_posting.positions)
 
 
 def test_posting_list_serialization():
@@ -43,7 +43,7 @@ def test_posting_list_serialization():
     assert len(postings) == len(deserialized_postings)
     for original, deserialized in zip(postings, deserialized_postings):
         assert original.doc_id == deserialized.doc_id
-        assert original.positions == deserialized.positions
+        assert original.positions == list(deserialized.positions)
 
 
 def test_pack_unpack_gammas_postings():

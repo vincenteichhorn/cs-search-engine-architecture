@@ -1,43 +1,44 @@
 from sea.util.gamma import pack_gammas, unpack_gammas
 import time
 import struct
-from cpython.list cimport PyList_New, PyList_SET_ITEM
-from cpython.long cimport PyLong_FromLong
 from libc.stdint cimport uint8_t
+from libc.stdlib cimport malloc, free
 
-cpdef object deserialize_fast_impl(
+cpdef object posting_deserialize(
     const uint8_t[:] data,
     bint only_doc_id=False,
     object cls=None
 ):
     cdef unsigned int doc_id = (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3]
     cdef unsigned int positions_len = (data[4] << 24) | (data[5] << 16) | (data[6] << 8) | data[7]
-        
-    cdef int bytes_read = 8 + positions_len * 4
+    cdef Py_ssize_t bytes_read = 8 + positions_len * 4
 
     if cls is None:
         cls = Posting
-    
+
     if only_doc_id:
         return cls(doc_id, []), bytes_read
 
-    cdef object pylist = PyList_New(positions_len)
-    cdef unsigned int i
-    cdef int pos
-    cdef Py_ssize_t cur = 8
+    # Allocate a C array for positions
+    cdef unsigned int[:] positions = <unsigned int[:positions_len]> malloc(positions_len * sizeof(unsigned int))
+    if positions is None:
+        raise MemoryError()
 
+    cdef unsigned int i, cur = 8
+
+    # Read positions directly into the C array
     for i in range(positions_len):
-        pos = (data[cur] << 24) | (data[cur+1] << 16) | (data[cur+2] << 8) | data[cur+3]
-        PyList_SET_ITEM(pylist, i, PyLong_FromLong(pos))
+        positions[i] = (data[cur] << 24) | (data[cur+1] << 16) | (data[cur+2] << 8) | data[cur+3]
         cur += 4
 
-    return cls(doc_id, <list>pylist), bytes_read
+    # Return Posting object; convert to list only if necessary
+    return cls(doc_id, positions), bytes_read
 
 cdef class Posting:
     cdef public int doc_id
-    cdef public list positions
+    cdef public object positions
 
-    def __cinit__(self, int doc_id, list positions):
+    def __cinit__(self, int doc_id, object positions):
         self.doc_id = doc_id
         self.positions = positions
 
@@ -63,4 +64,4 @@ cdef class Posting:
 
     @classmethod
     def deserialize(cls, const uint8_t[:] data, bint only_doc_id=False):
-        return deserialize_fast_impl(data, only_doc_id, cls)
+        return posting_deserialize(data, only_doc_id, cls)
