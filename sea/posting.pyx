@@ -1,6 +1,37 @@
 from sea.util.gamma import pack_gammas, unpack_gammas
 import time
 import struct
+from cpython.list cimport PyList_New, PyList_SET_ITEM
+from cpython.long cimport PyLong_FromLong
+from libc.stdint cimport uint8_t
+
+cpdef object deserialize_fast_impl(
+    const uint8_t[:] data,
+    bint only_doc_id=False,
+    object cls=None
+):
+    cdef unsigned int doc_id = (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3]
+    cdef unsigned int positions_len = (data[4] << 24) | (data[5] << 16) | (data[6] << 8) | data[7]
+        
+    cdef int bytes_read = 8 + positions_len * 4
+
+    if cls is None:
+        cls = Posting
+    
+    if only_doc_id:
+        return cls(doc_id, []), bytes_read
+
+    cdef object pylist = PyList_New(positions_len)
+    cdef int i
+    cdef int pos
+    cdef Py_ssize_t cur = 8
+
+    for i in range(positions_len):
+        pos = (data[cur] << 24) | (data[cur+1] << 16) | (data[cur+2] << 8) | data[cur+3]
+        PyList_SET_ITEM(pylist, i, PyLong_FromLong(pos))
+        cur += 4
+
+    return cls(doc_id, <list>pylist), bytes_read
 
 cdef class Posting:
     cdef public int doc_id
@@ -10,18 +41,17 @@ cdef class Posting:
         self.doc_id = doc_id
         self.positions = positions
 
-    # cpdef bytes serialize(self):
-    #     cdef bytes data = pack_gammas([self.doc_id] + [p+1 for p in self.positions])
-    #     return data
+    cpdef void serialize_gamma(self, object writer):
+        pack_gammas(writer, [self.doc_id] + [p+1 for p in self.positions])
 
-    # @classmethod
-    # def deserialize(cls, object reader, bint only_doc_id=False):
-    #     cdef list numbers
-    #     numbers = unpack_gammas(reader, read_n=1 if only_doc_id else -1)
+    @classmethod
+    def deserialize_gamma(cls, object reader, bint only_doc_id=False):
+        cdef list numbers
+        numbers = unpack_gammas(reader, read_n=1 if only_doc_id else -1)
 
-    #     cdef int doc_id = numbers[0]
-    #     cdef list positions = [p-1 for p in numbers[1:]] if not only_doc_id else []
-    #     return cls(doc_id, positions)
+        cdef int doc_id = numbers[0]
+        cdef list positions = [p-1 for p in numbers[1:]] if not only_doc_id else []
+        return cls(doc_id, positions)
 
     cpdef bytes serialize(self):
         cdef bytearray buffer = bytearray()
@@ -32,14 +62,5 @@ cdef class Posting:
         return bytes(buffer)
 
     @classmethod
-    def deserialize(cls, bytes data, bint only_doc_id=False):
-        cdef list positions
-        cdef int positions_len
-        cdef int doc_id = struct.unpack(">I", data[0:4])[0]
-        if only_doc_id:
-            positions = []
-        else:
-            positions_len = struct.unpack(">I", data[4:8])[0]
-            positions = [struct.unpack(">I", data[8+i*4:12+i*4])[0] for i in range(positions_len)]
-        cdef bytes remainder = data[8+positions_len*4:]
-        return cls(doc_id, positions), remainder
+    def deserialize(cls, const uint8_t[:] data, bint only_doc_id=False):
+        return deserialize_fast_impl(data, only_doc_id, cls)

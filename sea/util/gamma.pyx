@@ -4,7 +4,7 @@ cdef class BitWriter:
     cdef bytearray buffer
     cdef unsigned char current_byte
     cdef int bits_filled
-    cdef long total_bits_written
+    cdef public long total_bits_written
 
     def __cinit__(self):
         self.buffer = bytearray()
@@ -90,7 +90,7 @@ cdef class BitReader:
     
     cpdef int bits_remaining(self):
         cdef Py_ssize_t data_len = len(self.data)
-        return (data_len - self.byte_index) * 8 - self.bit_index
+        return (data_len - self.byte_index) * 8 - self.bit_index - 1
 
 
 cpdef int encode_gamma(BitWriter writer, int number):
@@ -112,7 +112,7 @@ cpdef int encode_gamma(BitWriter writer, int number):
         int: The number of bits written.
     """
     if number <= 0:
-        raise ValueError("Gamma code is only for positive integers")
+        raise ValueError(f"Gamma code is only for positive integers, got {number}")
 
     cdef int bitlen = number.bit_length() - 1
     writer.write_bits(0, bitlen)
@@ -143,7 +143,7 @@ cpdef tuple decode_gamma(BitReader reader):
     return number, bits_used
 
 
-cpdef bytes pack_gammas(list numbers):
+cpdef bytes pack_gammas(object writer, list numbers):
     """Packs a list of positive integers into a bytes object using gamma coding.
     The nubers are packend as follows:
     - First, the total number of bits used to encode all integers is gamma-encoded.
@@ -162,22 +162,16 @@ cpdef bytes pack_gammas(list numbers):
     Returns:
         bytes: A bytes object containing the gamma-coded integers.
     """
-    cdef BitWriter data_writer = BitWriter()
     cdef BitWriter inner_writer = BitWriter()
     cdef int n
     for n in numbers:
         encode_gamma(inner_writer, n)
 
     cdef long total_bits = inner_writer.total_bits_written
-    encode_gamma(data_writer, total_bits)
+    encode_gamma(writer, total_bits)
 
     for b in inner_writer.get_bytes():
-        data_writer.write_bits(b, 8)
-
-    print(data_writer.current_byte, data_writer.bits_filled, len(data_writer.buffer), "before flush")
-    byts = data_writer.get_bytes()
-    print(f"Packed {len(numbers)} numbers into {len(byts)}, total bits: {total_bits}")
-    return byts
+        writer.write_bits(b, 8)
 
 
 cpdef list unpack_gammas(object reader, int read_n=-1):
@@ -206,7 +200,7 @@ cpdef list unpack_gammas(object reader, int read_n=-1):
     bits_needed, _ = decode_gamma(reader)
 
     print(f"Decoding {bits_needed} bits using gamma coding")
-    cdef int no_ceil_bits = 8 - (bits_needed % 8) + 1
+    cdef int no_ceil_bits = 8 - (bits_needed % 8)
 
     while bits_read < bits_needed and (read_n == -1 or len(numbers) < read_n):
         n, used = decode_gamma(reader)
