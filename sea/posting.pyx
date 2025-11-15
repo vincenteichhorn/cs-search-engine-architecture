@@ -22,7 +22,7 @@ cpdef object deserialize_fast_impl(
         return cls(doc_id, []), bytes_read
 
     cdef object pylist = PyList_New(positions_len)
-    cdef int i
+    cdef unsigned int i
     cdef int pos
     cdef Py_ssize_t cur = 8
 
