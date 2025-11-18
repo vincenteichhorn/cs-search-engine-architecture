@@ -33,6 +33,7 @@ class Query:
     def __init__(self, input: str, tokenizer: Tokenizer):
         self.input = input
         self.tokenizer = tokenizer
+        self.tokens = []
         self.operator_precedence = {"or": 1, "and": 2, "not": 3}
         self.root = self._parse_query(input)
 
@@ -46,18 +47,18 @@ class Query:
         Returns:
             Node: The root node of the binary tree representing the query.
         """
-        tokens = self.tokenizer.tokenize(input, is_query=True)
+        self.tokens = self.tokenizer.tokenize(input, is_query=True)
 
-        if tokens == []:
+        if self.tokens == []:
             return None
         number_tokens = 0
-        for token in tokens:
+        for token in self.tokens:
             if token not in self.operator_precedence.keys() and token != '"':
                 number_tokens += 1
         if number_tokens == 0:
             return None
 
-        filled_tokens = self._remove_surrounding_operators(tokens)
+        filled_tokens = self._remove_surrounding_operators(self.tokens)
         filled_tokens = self._remove_consecutive_operators(filled_tokens)
         filled_tokens = self._fill_in_implicit_ands(filled_tokens)
         filled_tokens = self._remove_in_phrase_ands(filled_tokens)

@@ -6,14 +6,14 @@ from sea.indexer import Indexer
 from sea.query import Query
 from sea.util.load import load_documents
 
-MAX_DOCUMENTS = 1000000  # 3_213_835
+MAX_DOCUMENTS = 100_000  # 3_213_835
 
 
 def main():
 
     tokenizer = Tokenizer()
 
-    # indexer = Indexer("./data/index", partition_size=7500)
+    # indexer = Indexer("./data/indices/small", partition_size=7500)
     # start = time.time()
     # for document in tqdm(
     #     load_documents("./data/msmarco-docs.tsv.gz", tokenizer, max_documents=MAX_DOCUMENTS),
@@ -24,13 +24,13 @@ def main():
     # indexer.merge_partitions()
     # del indexer
 
-    engine = Engine("./data/index")
+    engine = Engine("./data/indices/small")
     while True:
         query_text = input("Enter your search query: ")
         start = time.time()
         query = Query(query_text, tokenizer)
         end = time.time()
-        print(f"Query processing took {(end - start)*1000:.4f} milliseconds")
+        print(f"- Query processing took {(end - start)*1000:.4f} milliseconds")
         print(query)
         start = time.time()
         results = engine.search(query, limit=10)

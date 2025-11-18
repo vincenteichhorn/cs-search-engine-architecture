@@ -5,6 +5,7 @@ cdef class Tokenizer:
     cdef object stop_words
     cdef object query_stop_words
     cdef object _regex
+    cdef object _query_regex
     cdef object stemmer
 
     def __init__(self, stop_words=None):
@@ -20,6 +21,7 @@ cdef class Tokenizer:
         
         # precompile regex for word tokenization
         self._regex = re.compile(r'\b\w+\b')
+        self._query_regex = re.compile(r'"|\(|\)|\w+')
         
         # initialize PyStemmer
         self.stemmer = Stemmer.Stemmer('english')
@@ -34,7 +36,9 @@ cdef class Tokenizer:
         cdef str lowered
         cdef str stemmed
 
-        for token in self._regex.findall(text):
+        cdef object regex = self._query_regex if is_query else self._regex
+
+        for token in regex.findall(text):
             lowered = token.lower()
             if lowered in stopset:
                 continue

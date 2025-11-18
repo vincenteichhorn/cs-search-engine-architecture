@@ -1,7 +1,5 @@
 import mmap
 import os
-import struct
-import time
 
 from sea.posting_list import PostingList, posting_list_from_list
 from sea.document import Document, document_deserialize
@@ -11,6 +9,7 @@ from libc.time cimport clock, CLOCKS_PER_SEC, clock_t
 from libc.stdint cimport uint8_t, uint64_t
 from cpython.unicode cimport PyUnicode_DecodeUTF8
 from sea.posting import posting_deserialize
+from sea.spelling_corrector import SpellingCorrector
 
 def doc_id_key(doc):
     return doc.id
@@ -42,6 +41,7 @@ cdef class Engine:
     cdef const uint8_t* documents_ptr
 
     cdef dict token_dictionary
+    cdef object spelling_corrector
 
     def __init__(self, str index_path):
         self.index_path = index_path
@@ -71,7 +71,13 @@ cdef class Engine:
         self._load_token_dictionary()
         cdef clock_t end = clock()
         cdef double elapsed = (end - start) / CLOCKS_PER_SEC * 1000
-        print(f"Loading token dictionary took {elapsed:.4f} milliseconds")
+        print(f"- Loading token dictionary took {elapsed:.4f} milliseconds")
+
+        start = clock()
+        self.spelling_corrector = SpellingCorrector(list(self.token_dictionary.keys()))
+        end = clock()
+        elapsed = (end - start) / CLOCKS_PER_SEC * 1000
+        print(f"- Loading spelling corrector took {elapsed:.4f} milliseconds")
 
     cpdef void _load_token_dictionary(self):
         cdef unsigned int file_size = self.posting_list_index_view.shape[0]
@@ -164,10 +170,13 @@ cdef class Engine:
 
         if node.left is None and node.right is None:
             if isinstance(node.value, list):
-                result = self._get_postings(node.value[0])
+                result = self._get_postings(node.value[0], load_positions=True)
+                print(node.value[0], len(result))
                 for token in node.value[1:]:
                     other_posting_list = self._get_postings(token, load_positions=True)
-                    result.intersection(other_posting_list, self.contains_phrase).clone()
+                    print(token, len(other_posting_list))
+                    result.intersection(other_posting_list, self.contains_phrase)
+                    print(len(result))
                 return result, False
             else:
                 return self._get_postings(node.value), False
@@ -201,24 +210,33 @@ cdef class Engine:
             raise ValueError(f"Unknown operator: {node.value}")
 
     cpdef list search(self, object query, int limit=10):
+        
+        
         if query.root is None:
             return []
 
-        cdef list docs = []
-
-        cdef clock_t start = clock()
+        cdef list corrected_query_tokens = query.tokens
+        for i, qtok in enumerate(query.tokens):
+            corrected_query_tokens[i] = self.spelling_corrector.get_top_correction(qtok)
+        cdef str corrected_query = " ".join(corrected_query_tokens)
+        if corrected_query != query.input:
+            print(f"Did you mean: {corrected_query}?")
+        
         cdef object results
         cdef bint is_not
+
+        cdef clock_t start = clock()
         results, is_not = self.evaluate_node(query.root)
         cdef clock_t end = clock()
         cdef double elapsed = (end - start) / CLOCKS_PER_SEC * 1000
-        print(f"Query evaluation took {elapsed:.4f} milliseconds")
+        print(f"- Query evaluation took {elapsed:.4f} milliseconds")
 
+        cdef list docs
         start = clock()
         doc_ids = [res.doc_id for res in results]
         docs = self._get_not_documents(doc_ids, limit) if is_not else self._get_documents(doc_ids, limit)
         end = clock()
         elapsed = (end - start) / CLOCKS_PER_SEC * 1000
-        print(f"Document retrieval took {elapsed:.4f} milliseconds")
+        print(f"- Document retrieval took {elapsed:.4f} milliseconds")
 
         return docs
