@@ -1,5 +1,4 @@
 import time
-from tqdm import tqdm
 from sea.tokenizer import Tokenizer
 from sea.engine import Engine
 from sea.indexer import Indexer
@@ -8,7 +7,7 @@ from sea.util.load import load_documents
 
 
 class SEAConfig:
-    INDEX_PATH = "./data/indices/small"
+    INDEX_PATH = "./data/indices/100k"
     DOCUMENTS_PATH = "./data/msmarco-docs.tsv.gz"
     MAX_DOCUMENTS = 100_000  # 3_213_835
     PARTITION_SIZE = 10_000
