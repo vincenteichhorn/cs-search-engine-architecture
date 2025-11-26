@@ -50,6 +50,7 @@ cdef class Document:
     cdef public object tokenizer
     cdef public list tokens
     cdef public object token_positions
+    cdef public int num_title_tokens
 
     def __cinit__(self, title, url, body, tokenizer: Tokenizer = None):
         self.title = title
@@ -61,6 +62,7 @@ cdef class Document:
         NEXT_ID += 1
         self.tokens = None
         self.token_positions = None
+        self.num_title_tokens = -1
 
     def __init__(self, title, url, body, tokenizer: Tokenizer = None):
         if tokenizer is not None:
@@ -90,7 +92,7 @@ cdef class Document:
         Calls the tokenizer to tokenize the document's content
         """
         if self.tokens is None:
-            self.tokens = self.tokenizer.tokenize_document(self)
+            self.tokens, self.num_title_tokens = self.tokenizer.tokenize_document(self)
 
 
     cdef void _compute_positions(self):
@@ -154,4 +156,12 @@ cdef class Document:
         """
         Returns a Posting object for the given token in this document.
         """
-        return Posting(self.id, self.get_token_positions(token))
+        positions = self.get_token_positions(token)
+        tf_body = tf_title = 0
+        for pos in positions:
+            if pos < self.num_title_tokens:
+                tf_title += 1
+            else:
+                tf_body += 1
+        # id, positions, term frequencies per field, length of each field
+        return Posting(self.id, positions, [tf_title, tf_body], [self.num_title_tokens, len(self.tokens)-self.num_title_tokens])

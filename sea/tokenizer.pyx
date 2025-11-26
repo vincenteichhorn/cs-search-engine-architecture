@@ -46,11 +46,12 @@ cdef class Tokenizer:
             out.append(stemmed)
         return out
 
-    cpdef list tokenize_document(self, object document):
-        cdef list body_toks = self.tokenize(document.body, False)
+    cpdef tuple tokenize_document(self, object document):
         cdef list title_toks = self.tokenize(document.title, False)
-        body_toks.extend(title_toks)
-        return body_toks
+        cdef int num_title_toks = len(title_toks)
+        cdef list body_toks = self.tokenize(document.body, False)
+        title_toks.extend(body_toks)
+        return title_toks, num_title_toks
 
     cpdef list tokenize_query(self, str query):
         return self.tokenize(query, True)

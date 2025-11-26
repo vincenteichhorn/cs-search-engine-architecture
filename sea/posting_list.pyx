@@ -53,7 +53,7 @@ cdef class PostingList:
 
         self.items.insert(lo, item)
 
-    cpdef PostingList intersection(self, PostingList other, object additional_constraint = None):
+    cpdef PostingList intersection(self, PostingList other, object additional_constraint = None, object merge_items = None):
         """
         Returns a new PostingList that is the intersection of this list and another.
 
@@ -82,34 +82,14 @@ cdef class PostingList:
                 j += 1
             else:
                 if additional_constraint is None or additional_constraint(item1, item2):
-                    new_items.append(item2)
+                    new_items.append(item2 if merge_items is None else merge_items(item1, item2))
                 i += 1
                 j += 1
 
         self.items = new_items
         return self
 
-
-    cpdef int contains_phrase(self, object item, str self_token, str other_token, int k=1):
-        """
-        Checks if the Document contains the phrase defined by the positions of two tokens.
-
-        Arguments:
-            item (Document): The Document to check.
-            self_token (str): The first token in the phrase.
-            other_token (str): The second token in the phrase.
-            k (int): The positional distance between the two tokens.
-
-        Returns:
-            bool: True if the phrase exists in the PostingList, False otherwise.
-        """
-        for pos1 in item.token_positions[self_token]:
-            for pos2 in item.token_positions[other_token]:
-                if pos1 + k == pos2:
-                    return 1
-        return 0
-
-    cpdef PostingList union(self, PostingList other):
+    cpdef PostingList union(self, PostingList other, object merge_items = None):
         """
         Returns a new PostingList that is the union of this list and another.
 
@@ -139,7 +119,7 @@ cdef class PostingList:
                 new_items.append(item2)
                 j += 1
             else:
-                new_items.append(item1)
+                new_items.append(item2 if merge_items is None else merge_items(item1, item2))
                 i += 1
                 j += 1
 

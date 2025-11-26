@@ -17,18 +17,17 @@ def doc_id_key(doc):
 def pst_id_key(pst):
     return pst.doc_id
 
+cpdef first_of_tuple(object tpl):
+    return tpl[0]
+
 
 cdef class Engine:
     cdef public str index_path
-    cdef object posting_lists_file
-    cdef object posting_list_mmap
-    cdef const uint8_t[:] posting_list_view
-    cdef const uint8_t* posting_list_ptr
-
-    cdef object posting_index_file
-    cdef object posting_list_index_mmap
-    cdef const uint8_t[:] posting_list_index_view
-    cdef const uint8_t* posting_list_index_ptr
+    cdef int num_tiers
+    cdef list posting_list_files
+    cdef list posting_list_mmaps
+    cdef list posting_list_views
+    cdef list posting_list_ptrs
 
     cdef object document_index_file
     cdef object document_index_mmap
@@ -40,21 +39,43 @@ cdef class Engine:
     cdef const uint8_t[:] documents_view
     cdef const uint8_t* documents_ptr
 
-    cdef dict token_dictionary
+    cdef list token_dictionaries
     cdef object spelling_corrector
 
-    def __init__(self, str index_path):
+    def __init__(self, str index_path, int num_tiers = 3):
         self.index_path = index_path
+        self.num_tiers = num_tiers
+        self.posting_list_files = []
+        self.posting_list_mmaps = []
+        self.posting_list_views = []
+        self.posting_list_ptrs = []
+        self.initialize()
 
-        self.posting_lists_file = open(os.path.join(self.index_path, "posting_lists.bin"), "rb")
-        self.posting_list_mmap = mmap.mmap(self.posting_lists_file.fileno(), 0, access=mmap.ACCESS_READ)
-        self.posting_list_view = self.posting_list_mmap
-        self.posting_list_ptr = &self.posting_list_view[0]
-        
-        self.posting_index_file = open(os.path.join(self.index_path, "posting_lists_index.bin"), "rb")
-        self.posting_list_index_mmap = mmap.mmap(self.posting_index_file.fileno(), 0, access=mmap.ACCESS_READ)
-        self.posting_list_index_view = self.posting_list_index_mmap
-        self.posting_list_index_ptr = &self.posting_list_index_view[0]
+    cpdef initialize(self):
+
+        cdef const uint8_t[:] tmp_view
+        cdef const uint8_t* tmp_ptr
+        cdef object tmp_file
+        cdef object tmp_mmap 
+        cdef str file_path
+        cdef int file_size
+        for tier in range(self.num_tiers):
+            file_path = os.path.join(self.index_path, f"tier{tier}", "posting_lists.bin")
+            file_size = os.path.getsize(file_path)
+            if file_size > 0:
+                tmp_file = open(file_path, "rb")
+                tmp_mmap = mmap.mmap(tmp_file.fileno(), 0, access=mmap.ACCESS_READ)
+                tmp_view = tmp_mmap
+                tmp_ptr = (&tmp_view[0])
+                self.posting_list_files.append(tmp_file)
+                self.posting_list_mmaps.append(tmp_mmap)
+                self.posting_list_views.append(tmp_view)
+                self.posting_list_ptrs.append(tmp_ptr)
+            else:
+                self.posting_list_files.append(None)
+                self.posting_list_mmaps.append(None)
+                self.posting_list_views.append(None)
+                self.posting_list_ptrs.append(None)
 
         self.document_index_file = open(os.path.join(self.index_path, "document_index.bin"), "rb")
         self.document_index_mmap = mmap.mmap(self.document_index_file.fileno(), 0, access=mmap.ACCESS_READ)
@@ -66,53 +87,72 @@ cdef class Engine:
         self.documents_view = self.documents_mmap
         self.documents_ptr = &self.documents_view[0]
 
-        self.token_dictionary = {}
+        self.token_dictionaries = []
         cdef clock_t start = clock()
         self._load_token_dictionary()
         cdef clock_t end = clock()
         cdef double elapsed = (end - start) / CLOCKS_PER_SEC * 1000
         print(f"- Loading token dictionary took {elapsed:.4f} milliseconds")
 
-        start = clock()
-        self.spelling_corrector = SpellingCorrector(list(self.token_dictionary.keys()))
-        end = clock()
-        elapsed = (end - start) / CLOCKS_PER_SEC * 1000
-        print(f"- Loading spelling corrector took {elapsed:.4f} milliseconds")
+        # start = clock()
+        # self.spelling_corrector = SpellingCorrector(list(self.token_dictionary.keys()))
+        # end = clock()
+        # elapsed = (end - start) / CLOCKS_PER_SEC * 1000
+        # print(f"- Loading spelling corrector took {elapsed:.4f} milliseconds")
 
     cpdef void _load_token_dictionary(self):
-        cdef unsigned int file_size = self.posting_list_index_view.shape[0]
-        cdef unsigned int pos = 0
+
+        cdef const uint8_t[:] tmp_view
+        cdef const uint8_t* tmp_ptr
+        cdef object tmp_file
+        cdef object tmp_mmap 
+        cdef unsigned int file_size = 0
+        cdef unsigned int pos
         cdef str token
         cdef unsigned long long posting_list_offset
         cdef unsigned int posting_list_length
-        while pos < file_size:
-            token_length = (self.posting_list_index_view[pos] << 24) | (self.posting_list_index_view[pos + 1] << 16) | (self.posting_list_index_view[pos + 2] << 8) | self.posting_list_index_view[pos + 3]
-            pos += 4
-            token = PyUnicode_DecodeUTF8(<char*>(self.posting_list_index_ptr + pos), token_length, NULL)
-            pos += token_length
-            posting_list_offset = (<uint64_t>self.posting_list_index_view[pos] << 56) | (<uint64_t>self.posting_list_index_view[pos + 1] << 48) | (<uint64_t>self.posting_list_index_view[pos + 2] << 40) | (<uint64_t>self.posting_list_index_view[pos + 3] << 32) | (<uint64_t>self.posting_list_index_view[pos + 4] << 24) | (<uint64_t>self.posting_list_index_view[pos + 5] << 16) | (<uint64_t>self.posting_list_index_view[pos + 6] << 8) | <uint64_t>self.posting_list_index_view[pos + 7]
-            pos += 8
-            posting_list_length = (self.posting_list_index_view[pos] << 24) | (self.posting_list_index_view[pos + 1] << 16) | (self.posting_list_index_view[pos + 2] << 8) | self.posting_list_index_view[pos + 3]
-            pos += 4
-            self.token_dictionary[token] = (posting_list_offset, posting_list_length)
+        cdef str file_path
+        for tier in range(self.num_tiers):
+            self.token_dictionaries.append({})
+            file_path = os.path.join(self.index_path, f"tier{tier}", "posting_lists_index.bin")
+            tmp_file = open(file_path, "rb")
+            file_size = os.path.getsize(file_path)
+            if file_size == 0:
+                continue
+            tmp_mmap = mmap.mmap(tmp_file.fileno(), 0, access=mmap.ACCESS_READ)
+            tmp_view = tmp_mmap
+            tmp_ptr = &tmp_view[0]
+            file_size = tmp_view.shape[0]
+            pos = 0
+            while pos < file_size:
+                token_length = (tmp_view[pos] << 24) | (tmp_view[pos + 1] << 16) | (tmp_view[pos + 2] << 8) | tmp_view[pos + 3]
+                pos += 4
+                token = PyUnicode_DecodeUTF8(<char*>(tmp_ptr + pos), token_length, NULL)
+                pos += token_length
+                posting_list_offset = (<uint64_t>tmp_view[pos] << 56) | (<uint64_t>tmp_view[pos + 1] << 48) | (<uint64_t>tmp_view[pos + 2] << 40) | (<uint64_t>tmp_view[pos + 3] << 32) | (<uint64_t>tmp_view[pos + 4] << 24) | (<uint64_t>tmp_view[pos + 5] << 16) | (<uint64_t>tmp_view[pos + 6] << 8) | <uint64_t>tmp_view[pos + 7]
+                pos += 8
+                posting_list_length = (tmp_view[pos] << 24) | (tmp_view[pos + 1] << 16) | (tmp_view[pos + 2] << 8) | tmp_view[pos + 3]
+                pos += 4
+                term_doc_freq = (tmp_view[pos] << 24) | (tmp_view[pos + 1] << 16) | (tmp_view[pos + 2] << 8) | tmp_view[pos + 3]
+                pos += 4
+                self.token_dictionaries[tier][token] = (posting_list_offset, posting_list_length, term_doc_freq)
 
-    cpdef object _get_postings(self, str token, bint load_positions=False):
-        if token not in self.token_dictionary:
+    cpdef object _get_postings(self, str token, int tier, bint load_positions=False):
+        if token not in self.token_dictionaries[tier]:
             return PostingList(key=pst_id_key)
 
         cdef long long offset
         cdef int length
-        offset, length = self.token_dictionary[token]
+        offset, length, _ = self.token_dictionaries[tier][token]
         cdef list postings = []
         cdef object posting
         cdef Py_ssize_t bytes_read
         cdef Py_ssize_t end_offset = offset + length
         cdef Py_ssize_t cur = offset
         while cur < end_offset:
-            posting, bytes_read = posting_deserialize(self.posting_list_view[cur:end_offset], only_doc_id=not load_positions)
+            posting, bytes_read = posting_deserialize(self.posting_list_views[tier][cur:end_offset], only_doc_id=not load_positions)
             cur += bytes_read
             postings.append(posting)
-
         cdef object posting_list = posting_list_from_list(postings, key=pst_id_key, sorted=True)
 
         return posting_list
@@ -164,69 +204,82 @@ cdef class Engine:
                 j += 1
         return False
 
-    cpdef tuple evaluate_node(self, object node):
+    cpdef object add_bm25(self, object first_posting, object second_posting):
+        second_posting.score += first_posting.score
+        return second_posting
+
+    cpdef tuple evaluate_node(self, object node, int tier):
         if node is None:
             return PostingList(key=pst_id_key), False
 
         if node.left is None and node.right is None:
             if isinstance(node.value, list):
-                result = self._get_postings(node.value[0], load_positions=True)
-                print(node.value[0], len(result))
+                result = self._get_postings(node.value[0], tier, load_positions=True)
                 for token in node.value[1:]:
-                    other_posting_list = self._get_postings(token, load_positions=True)
-                    print(token, len(other_posting_list))
-                    result.intersection(other_posting_list, self.contains_phrase)
-                    print(len(result))
+                    other_posting_list = self._get_postings(token, tier, load_positions=True)
+                    result.intersection(other_posting_list, self.contains_phrase, self.add_bm25)
                 return result, False
             else:
-                return self._get_postings(node.value), False
+                return self._get_postings(node.value, tier), False
 
         if node.value == "not":
-            right_postings, right_is_not = self.evaluate_node(node.right)
+            right_postings, right_is_not = self.evaluate_node(node.right, tier)
             return right_postings, not right_is_not
 
-        left_postings, left_is_not = self.evaluate_node(node.left)
-        right_postings, right_is_not = self.evaluate_node(node.right)
+        left_postings, left_is_not = self.evaluate_node(node.left, tier)
+        right_postings, right_is_not = self.evaluate_node(node.right, tier)
 
         if node.value == "and":
             if not left_is_not and not right_is_not:
-                return left_postings.intersection(right_postings), False
+                return left_postings.intersection(right_postings, merge_items=self.add_bm25), False
             elif left_is_not and not right_is_not:
                 return right_postings.difference(left_postings), False
             elif not left_is_not and right_is_not:
                 return left_postings.difference(right_postings), False
             else:
-                return left_postings.union(right_postings), True
+                return left_postings.union(right_postings, merge_items=self.add_bm25), True
         elif node.value == "or":
             if not left_is_not and not right_is_not:
-                return left_postings.union(right_postings), False
+                return left_postings.union(right_postings, merge_items=self.add_bm25), False
             elif left_is_not and not right_is_not:
                 return left_postings.difference(right_postings), True
             elif not left_is_not and right_is_not:
                 return right_postings.difference(left_postings), True
             else:
-                return left_postings.intersection(right_postings), True
+                return left_postings.intersection(right_postings, merge_items=self.add_bm25), True
         else:
             raise ValueError(f"Unknown operator: {node.value}")
 
     cpdef list search(self, object query, int limit=10):
         
-        
         if query.root is None:
             return []
 
-        cdef list corrected_query_tokens = query.tokens
-        for i, qtok in enumerate(query.tokens):
-            corrected_query_tokens[i] = self.spelling_corrector.get_top_correction(qtok)
-        cdef str corrected_query = " ".join(corrected_query_tokens)
-        if corrected_query != query.input:
-            print(f"Did you mean: {corrected_query}?")
+        # cdef list corrected_query_tokens = query.tokens
+        # for i, qtok in enumerate(query.tokens):
+        #     corrected_query_tokens[i] = self.spelling_corrector.get_top_correction(qtok)
+        # cdef str corrected_query = " ".join(corrected_query_tokens)
+        # if corrected_query != query.input:
+        #     print(f"Did you mean: {corrected_query}?")
         
-        cdef object results
-        cdef bint is_not
+        cdef list results = []
+        cdef list scores = []
+        cdef object tmp_posting_list
+        cdef bint is_not = False
+        cdef int current_tier = 0
 
         cdef clock_t start = clock()
-        results, is_not = self.evaluate_node(query.root)
+
+        while len(results) < limit and current_tier < self.num_tiers:
+            if self.posting_list_files[current_tier] is None:
+                current_tier += 1
+                continue
+            tmp_posting_list, is_not = self.evaluate_node(query.root, current_tier)
+            results.extend(tmp_posting_list.items)
+            scores.extend([item.score for item in tmp_posting_list.items])
+            current_tier += 1
+            print(f"Reading tier {current_tier-1}")
+
         cdef clock_t end = clock()
         cdef double elapsed = (end - start) / CLOCKS_PER_SEC * 1000
         print(f"- Query evaluation took {elapsed:.4f} milliseconds")
@@ -239,4 +292,7 @@ cdef class Engine:
         elapsed = (end - start) / CLOCKS_PER_SEC * 1000
         print(f"- Document retrieval took {elapsed:.4f} milliseconds")
 
-        return docs
+        scores_and_docs = zip(scores, docs)
+        sorted_scores_and_docs = sorted(scores_and_docs, key=first_of_tuple, reverse=True)
+
+        return sorted_scores_and_docs

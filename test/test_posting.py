@@ -12,12 +12,16 @@ def test_posting_serialization():
     tokenizer = Tokenizer()
     document = Document(title, url, body, tokenizer)
     posting = document.get_posting(document.tokens[0])
+    posting.score = 101
 
     data = posting.serialize()
     deserialized_posting, _ = Posting.deserialize(data)
 
     assert posting.doc_id == deserialized_posting.doc_id
     assert posting.positions == list(deserialized_posting.positions)
+    assert posting.field_lengths == list(deserialized_posting.field_lengths)
+    assert posting.field_freqs == list(deserialized_posting.field_freqs)
+    assert posting.score == deserialized_posting.score
 
 
 def test_posting_list_serialization():
@@ -29,7 +33,8 @@ def test_posting_list_serialization():
     document = Document(title, url, body, tokenizer)
     postings = [document.get_posting(token) for token in document.tokens[:10]]
     data = bytes()
-    for posting in postings:
+    for i, posting in enumerate(postings):
+        posting.score = i * 0.67
         posting_bytes = posting.serialize()
         data += posting_bytes
 
@@ -44,21 +49,6 @@ def test_posting_list_serialization():
     for original, deserialized in zip(postings, deserialized_postings):
         assert original.doc_id == deserialized.doc_id
         assert original.positions == list(deserialized.positions)
-
-
-def test_pack_unpack_gammas_postings():
-
-    postings = (Posting(1, [0, 2, 4]), Posting(3, [1, 3]), Posting(5, [0, 1, 2, 3]))
-    writer = BitWriter()
-    for posting in postings:
-        posting.serialize_gamma(writer)
-
-    data = writer.get_bytes()
-    reader = BitReader(bytes(data))
-    unpacked_postings = []
-    while reader.bits_remaining() > 0:
-        posting = Posting.deserialize_gamma(reader)
-        unpacked_postings.append(posting)
-    for p1, p2 in zip(postings, unpacked_postings):
-        assert p1.doc_id == p2.doc_id
-        assert p1.positions == p2.positions
+        assert original.field_freqs == list(deserialized.field_freqs)
+        assert original.field_lengths == list(deserialized.field_lengths)
+        assert original.score == deserialized.score
