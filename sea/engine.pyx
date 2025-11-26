@@ -11,10 +11,10 @@ from cpython.unicode cimport PyUnicode_DecodeUTF8
 from sea.posting import posting_deserialize
 from sea.spelling_corrector import SpellingCorrector
 
-def doc_id_key(doc):
+cpdef doc_id_key(doc):
     return doc.id
 
-def pst_id_key(pst):
+cpdef pst_id_key(pst):
     return pst.doc_id
 
 cpdef first_of_tuple(object tpl):
@@ -22,8 +22,7 @@ cpdef first_of_tuple(object tpl):
 
 
 cdef class Engine:
-    cdef public str index_path
-    cdef int num_tiers
+    cdef object config
     cdef list posting_list_files
     cdef list posting_list_mmaps
     cdef list posting_list_views
@@ -39,12 +38,13 @@ cdef class Engine:
     cdef const uint8_t[:] documents_view
     cdef const uint8_t* documents_ptr
 
+
     cdef list token_dictionaries
+    cdef set frequent_terms
     cdef object spelling_corrector
 
-    def __init__(self, str index_path, int num_tiers = 3):
-        self.index_path = index_path
-        self.num_tiers = num_tiers
+    def __init__(self, object config):
+        self.config = config
         self.posting_list_files = []
         self.posting_list_mmaps = []
         self.posting_list_views = []
@@ -59,8 +59,8 @@ cdef class Engine:
         cdef object tmp_mmap 
         cdef str file_path
         cdef int file_size
-        for tier in range(self.num_tiers):
-            file_path = os.path.join(self.index_path, f"tier{tier}", "posting_lists.bin")
+        for tier in range(self.config.NUM_TIERS):
+            file_path = os.path.join(self.config.INDEX_PATH, f"{self.config.TIER_PREFIX}{tier}", self.config.POSTINGS_DATA_FILE_NAME)
             file_size = os.path.getsize(file_path)
             if file_size > 0:
                 tmp_file = open(file_path, "rb")
@@ -77,28 +77,29 @@ cdef class Engine:
                 self.posting_list_views.append(None)
                 self.posting_list_ptrs.append(None)
 
-        self.document_index_file = open(os.path.join(self.index_path, "document_index.bin"), "rb")
+        self.document_index_file = open(os.path.join(self.config.INDEX_PATH, self.config.DOCUMENTS_INDEX_FILE_NAME), "rb")
         self.document_index_mmap = mmap.mmap(self.document_index_file.fileno(), 0, access=mmap.ACCESS_READ)
         self.document_index_view = self.document_index_mmap
         self.document_index_ptr = &self.document_index_view[0]
 
-        self.documents_file = open(os.path.join(self.index_path, "documents.bin"), "rb")
+        self.documents_file = open(os.path.join(self.config.INDEX_PATH, self.config.DOCUMENTS_DATA_FILE_NAME), "rb")
         self.documents_mmap = mmap.mmap(self.documents_file.fileno(), 0, access=mmap.ACCESS_READ)
         self.documents_view = self.documents_mmap
         self.documents_ptr = &self.documents_view[0]
 
         self.token_dictionaries = []
+        self.frequent_terms = set()
         cdef clock_t start = clock()
         self._load_token_dictionary()
         cdef clock_t end = clock()
         cdef double elapsed = (end - start) / CLOCKS_PER_SEC * 1000
         print(f"- Loading token dictionary took {elapsed:.4f} milliseconds")
 
-        # start = clock()
-        # self.spelling_corrector = SpellingCorrector(list(self.token_dictionary.keys()))
-        # end = clock()
-        # elapsed = (end - start) / CLOCKS_PER_SEC * 1000
-        # print(f"- Loading spelling corrector took {elapsed:.4f} milliseconds")
+        start = clock()
+        self.spelling_corrector = SpellingCorrector(list(self.frequent_terms))
+        end = clock()
+        elapsed = (end - start) / CLOCKS_PER_SEC * 1000
+        print(f"- Loading spelling corrector took {elapsed:.4f} milliseconds")
 
     cpdef void _load_token_dictionary(self):
 
@@ -112,9 +113,9 @@ cdef class Engine:
         cdef unsigned long long posting_list_offset
         cdef unsigned int posting_list_length
         cdef str file_path
-        for tier in range(self.num_tiers):
+        for tier in range(self.config.NUM_TIERS):
             self.token_dictionaries.append({})
-            file_path = os.path.join(self.index_path, f"tier{tier}", "posting_lists_index.bin")
+            file_path = os.path.join(self.config.INDEX_PATH, f"{self.config.TIER_PREFIX}{tier}", self.config.POSTINGS_INDEX_FILE_NAME)
             tmp_file = open(file_path, "rb")
             file_size = os.path.getsize(file_path)
             if file_size == 0:
@@ -136,6 +137,8 @@ cdef class Engine:
                 term_doc_freq = (tmp_view[pos] << 24) | (tmp_view[pos + 1] << 16) | (tmp_view[pos + 2] << 8) | tmp_view[pos + 3]
                 pos += 4
                 self.token_dictionaries[tier][token] = (posting_list_offset, posting_list_length, term_doc_freq)
+                if term_doc_freq >= self.config.SPELLING_FREQUENCY_THRESHOLD:
+                    self.frequent_terms.add(token)
 
     cpdef object _get_postings(self, str token, int tier, bint load_positions=False):
         if token not in self.token_dictionaries[tier]:
@@ -154,7 +157,7 @@ cdef class Engine:
             cur += bytes_read
             postings.append(posting)
         cdef object posting_list = posting_list_from_list(postings, key=pst_id_key, sorted=True)
-
+        
         return posting_list
 
     cpdef object _get_document(self, int doc_id):
@@ -255,38 +258,39 @@ cdef class Engine:
         if query.root is None:
             return []
 
-        # cdef list corrected_query_tokens = query.tokens
-        # for i, qtok in enumerate(query.tokens):
-        #     corrected_query_tokens[i] = self.spelling_corrector.get_top_correction(qtok)
-        # cdef str corrected_query = " ".join(corrected_query_tokens)
-        # if corrected_query != query.input:
-        #     print(f"Did you mean: {corrected_query}?")
+        cdef list corrected_query_tokens = query.tokens
+        for i, qtok in enumerate(query.tokens):
+            corrected_query_tokens[i] = self.spelling_corrector.get_top_correction(qtok)
+        cdef str corrected_query = " ".join(corrected_query_tokens)
+        if corrected_query != query.input:
+            print(f"Did you mean: {corrected_query}?")
         
-        cdef list results = []
-        cdef list scores = []
+        cdef object results = PostingList(key=pst_id_key)
         cdef object tmp_posting_list
         cdef bint is_not = False
-        cdef int current_tier = 0
+        cdef int tier = 0
 
         cdef clock_t start = clock()
 
-        while len(results) < limit and current_tier < self.num_tiers:
-            if self.posting_list_files[current_tier] is None:
-                current_tier += 1
+        while len(results) < limit and tier < self.config.NUM_TIERS:
+
+            if self.posting_list_files[tier] is None:
+                tier += 1
                 continue
-            tmp_posting_list, is_not = self.evaluate_node(query.root, current_tier)
-            results.extend(tmp_posting_list.items)
-            scores.extend([item.score for item in tmp_posting_list.items])
-            current_tier += 1
-            print(f"Reading tier {current_tier-1}")
+            tmp_posting_list, is_not = self.evaluate_node(query.root, tier)
+            results.union(tmp_posting_list, merge_items=self.add_bm25)
+            tier += 1
 
         cdef clock_t end = clock()
         cdef double elapsed = (end - start) / CLOCKS_PER_SEC * 1000
         print(f"- Query evaluation took {elapsed:.4f} milliseconds")
 
         cdef list docs
-        start = clock()
+        cdef list doc_ids
+        cdef list scores
         doc_ids = [res.doc_id for res in results]
+        scores = [res.score if not is_not else 0.0 for res in results]
+        start = clock()
         docs = self._get_not_documents(doc_ids, limit) if is_not else self._get_documents(doc_ids, limit)
         end = clock()
         elapsed = (end - start) / CLOCKS_PER_SEC * 1000
