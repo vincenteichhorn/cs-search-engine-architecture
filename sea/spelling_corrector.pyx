@@ -44,7 +44,7 @@ cdef class SpellingCorrector:
         cdef list bigrams
         self.index = {}
         if alphabet is None:
-            alphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
+            alphabet = 'abcdefghijklmnopqrstuvwxyz0123456789'
         alphabet += "$"
         for a in alphabet:
             for b in alphabet:
@@ -66,7 +66,8 @@ cdef class SpellingCorrector:
 
     cpdef list get_corrections_all(self, str token, float threshold = 0.7):
         
-        cdef list bigrams = get_bigrams(token)
+        cdef str tok = token.lower().replace('"', '')
+        cdef list bigrams = get_bigrams(tok)
         cdef list candidates = self.get_candidates(bigrams)
         cdef list corrections = []
 
@@ -81,14 +82,15 @@ cdef class SpellingCorrector:
     
     cpdef str get_top_correction(self, str token):
 
-        cdef list bigrams = get_bigrams(token)
+        cdef str tok = token.lower().replace('"', '')
+        cdef list bigrams = get_bigrams(tok)
         cdef list candidates = self.get_candidates(bigrams)
         cdef list corrections = []
 
         cdef str cand
         cdef list cand_bigrams
         cdef float best_score = 0
-        cdef str best_cand
+        cdef str best_cand = ""
         for cand in candidates:
             cand_bigrams = get_bigrams(cand)
             cand_score = jaccard_similarity(bigrams, cand_bigrams)
