@@ -3,6 +3,14 @@ from typing import Generator
 
 from sea.document import Document
 from sea.tokenizer import Tokenizer
+import subprocess
+
+
+def open_maybe_gzip(path):
+    if path.endswith(".gz"):
+        return subprocess.Popen(["zcat", path], stdout=subprocess.PIPE, text=True).stdout
+    else:
+        return open(path, "r", encoding="utf-8")
 
 
 def load_documents(
@@ -21,9 +29,7 @@ def load_documents(
         Generator[Document, None, None]: A generator that yields Document objects loaded from the file.
     """
 
-    open_file_fun = gzip.open if file_path.endswith(".gz") else open
-
-    with open_file_fun(file_path, "rt", encoding="utf-8") as file:
+    with open_maybe_gzip(file_path) as file:
         incomplete_lines = 0
         count = 0
         for line in file:

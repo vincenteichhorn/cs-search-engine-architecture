@@ -18,7 +18,7 @@ def test_posting_serialization():
     deserialized_posting, _ = Posting.deserialize(data)
 
     assert posting.doc_id == deserialized_posting.doc_id
-    assert posting.positions == list(deserialized_posting.positions)
+    assert posting.char_positions == list(deserialized_posting.char_positions)
     assert posting.field_lengths == list(deserialized_posting.field_lengths)
     assert posting.field_freqs == list(deserialized_posting.field_freqs)
     assert posting.score == deserialized_posting.score
@@ -48,7 +48,7 @@ def test_posting_list_serialization():
     assert len(postings) == len(deserialized_postings)
     for original, deserialized in zip(postings, deserialized_postings):
         assert original.doc_id == deserialized.doc_id
-        assert original.positions == list(deserialized.positions)
+        assert original.char_positions == list(deserialized.char_positions)
         assert original.field_freqs == list(deserialized.field_freqs)
         assert original.field_lengths == list(deserialized.field_lengths)
         assert original.score == deserialized.score

@@ -301,7 +301,7 @@ cdef class Indexer:
             tmp_end_offset = offset + length
             tmp_cur = offset
             while tmp_cur < tmp_end_offset:
-                posting, bytes_read = posting_deserialize(posting_list_views[pid][tmp_cur:tmp_end_offset], only_doc_id=False)
+                posting, bytes_read = posting_deserialize(posting_list_views[pid], offset=tmp_cur)
                 tmp_cur += bytes_read
                 current_postings.append(posting)
 

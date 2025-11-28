@@ -26,32 +26,43 @@ cdef class Tokenizer:
         # initialize PyStemmer
         self.stemmer = Stemmer.Stemmer('english')
 
-    cpdef list tokenize(self, str text, bint is_query=False):
+    cpdef tuple tokenize(self, str text, bint is_query=False):
         """
         Ultra-fast tokenizer + stemmer using regex + PyStemmer
         """
         cdef list out = []
+        cdef list char_positions = []
         cdef object stopset = self.query_stop_words if is_query else self.stop_words
-        cdef str token
+        cdef object token
         cdef str lowered
         cdef str stemmed
 
         cdef object regex = self._query_regex if is_query else self._regex
 
-        for token in regex.findall(text):
-            lowered = token.lower()
-            if lowered in stopset:
+        for token in regex.finditer(text):
+            lowered = token.group().lower()
+            if lowered in stopset or not lowered.isascii():
                 continue
             stemmed = self.stemmer.stemWord(lowered)
             out.append(stemmed)
-        return out
+            char_positions.append(token.start())
+        return out, char_positions
 
     cpdef tuple tokenize_document(self, object document):
-        cdef list title_toks = self.tokenize(document.title, False)
+        cdef list title_toks
+        cdef list char_title_positions
+        title_toks, char_title_positions = self.tokenize(document.title, False)
         cdef int num_title_toks = len(title_toks)
-        cdef list body_toks = self.tokenize(document.body, False)
+        cdef int num_title_chars = len(document.title)
+        cdef list body_toks
+        cdef list char_body_positions
+        body_toks, char_body_positions = self.tokenize(document.body, False)
         title_toks.extend(body_toks)
-        return title_toks, num_title_toks
+        char_title_positions.extend(char_body_positions)
+        return title_toks, char_title_positions, num_title_chars, num_title_toks
 
     cpdef list tokenize_query(self, str query):
-        return self.tokenize(query, True)
+        cdef list tokens
+        cdef list char_positions
+        tokens, char_positions = self.tokenize(query, True)
+        return tokens

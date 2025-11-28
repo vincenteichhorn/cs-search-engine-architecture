@@ -49,7 +49,9 @@ cdef class Document:
     cdef public str body
     cdef public object tokenizer
     cdef public list tokens
-    cdef public object token_positions
+    cdef public list char_positions
+    cdef public object token_char_positions
+    cdef public int num_title_chars
     cdef public int num_title_tokens
 
     def __cinit__(self, title, url, body, tokenizer: Tokenizer = None):
@@ -61,7 +63,8 @@ cdef class Document:
         self.id = NEXT_ID
         NEXT_ID += 1
         self.tokens = None
-        self.token_positions = None
+        self.char_positions = None
+        self.num_title_chars = -1
         self.num_title_tokens = -1
 
     def __init__(self, title, url, body, tokenizer: Tokenizer = None):
@@ -69,20 +72,6 @@ cdef class Document:
             self._tokenize()
             self._compute_positions()
 
-    def get_token_positions(self, token: str) -> List[int]:
-        """
-        Returns the list of positions for a given token in the document.
-
-        Arguments:
-            token (str): The token to retrieve positions for.
-
-        Returns:
-            List[int]: A list of positions where the token appears in the document.
-        """
-        if self.token_positions is not None and token in self.token_positions:
-            return self.token_positions[token]
-        else:
-            return []
     
     def __repr__(self):
         return f"Document(id={self.id}, title={self.title}, url={self.url})"
@@ -92,24 +81,24 @@ cdef class Document:
         Calls the tokenizer to tokenize the document's content
         """
         if self.tokens is None:
-            self.tokens, self.num_title_tokens = self.tokenizer.tokenize_document(self)
+            self.tokens, self.char_positions, self.num_title_chars, self.num_title_tokens = self.tokenizer.tokenize_document(self)
 
 
     cdef void _compute_positions(self):
         """
         Counts the frequency of each token in the document
         """
-        cdef object positions = {}
+        cdef object token_char_positions = {}
         cdef Py_ssize_t i
         cdef object token
 
-        if self.token_positions is None and self.tokens is not None:
-            for i, token in enumerate(self.tokens):
-                if token not in positions:
-                    positions[token] = []
-                positions[token].append(i)
+        if self.token_char_positions is None and self.tokens is not None:
+            for i, (token, char_position) in enumerate(zip(self.tokens, self.char_positions)):
+                if token not in token_char_positions:
+                    token_char_positions[token] = []
+                token_char_positions[token].append(char_position)
 
-            self.token_positions = positions
+            self.token_char_positions = token_char_positions
         else:
             raise ValueError("Document must be tokenized before counting tokens.")
 
@@ -156,12 +145,13 @@ cdef class Document:
         """
         Returns a Posting object for the given token in this document.
         """
-        positions = self.get_token_positions(token)
-        tf_body = tf_title = 0
-        for pos in positions:
-            if pos < self.num_title_tokens:
+        cdef list char_positions = self.token_char_positions.get(token, [])
+        cdef int tf_body = 0
+        cdef int tf_title = 0
+        for pos in char_positions:
+            if pos < self.num_title_chars:
                 tf_title += 1
             else:
                 tf_body += 1
         # id, positions, term frequencies per field, length of each field
-        return Posting(self.id, positions, [tf_title, tf_body], [self.num_title_tokens, len(self.tokens)-self.num_title_tokens])
+        return Posting(self.id, char_positions, [tf_title, tf_body], [self.num_title_tokens, len(self.tokens)-self.num_title_tokens])

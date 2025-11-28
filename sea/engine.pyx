@@ -140,7 +140,7 @@ cdef class Engine:
                 if term_doc_freq >= self.config.SPELLING_FREQUENCY_THRESHOLD:
                     self.frequent_terms.add(token)
 
-    cpdef object _get_postings(self, str token, int tier, bint load_positions=False):
+    cpdef object _get_postings(self, str token, int tier):
         if token not in self.token_dictionaries[tier]:
             return PostingList(key=pst_id_key)
 
@@ -153,7 +153,7 @@ cdef class Engine:
         cdef Py_ssize_t end_offset = offset + length
         cdef Py_ssize_t cur = offset
         while cur < end_offset:
-            posting, bytes_read = posting_deserialize(self.posting_list_views[tier][cur:end_offset], only_doc_id=not load_positions)
+            posting, bytes_read = posting_deserialize(self.posting_list_views[tier][cur:end_offset])
             cur += bytes_read
             postings.append(posting)
         cdef object posting_list = posting_list_from_list(postings, key=pst_id_key, sorted=True)
@@ -196,12 +196,14 @@ cdef class Engine:
             current_doc_id += 1
         return docs
 
-    cpdef bint contains_phrase(self, object first_posting, object second_posting, int k=1):
+    cpdef bint contains_phrase(self, object first_posting, object second_posting, int k=-1):
         cdef int i=0, j=0
-        while i < len(first_posting.positions) and j < len(second_posting.positions):
-            if first_posting.positions[i] + k == second_posting.positions[j]:
+        if k == -1:
+            k = self.config.IN_PHRASE_CHARACTER_DISTANCE
+        while i < len(first_posting.char_positions) and j < len(second_posting.char_positions):
+            if first_posting.char_positions[i] + k == second_posting.char_positions[j]:
                 return True
-            elif first_posting.positions[i] + k < second_posting.positions[j]:
+            elif first_posting.char_positions[i] + k < second_posting.char_positions[j]:
                 i += 1
             else:
                 j += 1
@@ -217,9 +219,9 @@ cdef class Engine:
 
         if node.left is None and node.right is None:
             if isinstance(node.value, list):
-                result = self._get_postings(node.value[0], tier, load_positions=True)
+                result = self._get_postings(node.value[0], tier)
                 for token in node.value[1:]:
-                    other_posting_list = self._get_postings(token, tier, load_positions=True)
+                    other_posting_list = self._get_postings(token, tier)
                     result.intersection(other_posting_list, self.contains_phrase, self.add_bm25)
                 return result, False
             else:
@@ -252,6 +254,19 @@ cdef class Engine:
                 return left_postings.intersection(right_postings, merge_items=self.add_bm25), True
         else:
             raise ValueError(f"Unknown operator: {node.value}")
+    
+    cdef str get_document_snippet(self, object document, object posting):
+        cdef int first_pos = posting.char_positions[0]
+        cdef int start_pos = max(0, first_pos - self.config.SNIPPET_RADIUS)
+        cdef int end_pos = min(len(document.body), first_pos + self.config.SNIPPET_RADIUS)
+        cdef str snippet = document.body[start_pos:end_pos]
+        cdef int leading_space = snippet.find(' ')
+        cdef int trailing_space = snippet.rfind(' ')
+        if leading_space != -1:
+            snippet = snippet[leading_space+1:]
+        if trailing_space != -1:
+            snippet = snippet[:trailing_space]
+        return snippet
 
     cpdef list search(self, object query, int limit=10):
         
@@ -265,20 +280,20 @@ cdef class Engine:
         if corrected_query != query.input:
             print(f"Did you mean: {corrected_query}?")
         
-        cdef object results = PostingList(key=pst_id_key)
+        cdef object postings = PostingList(key=pst_id_key)
         cdef object tmp_posting_list
         cdef bint is_not = False
         cdef int tier = 0
 
         cdef clock_t start = clock()
 
-        while len(results) < limit and tier < self.config.NUM_TIERS:
+        while len(postings) < limit and tier < self.config.NUM_TIERS:
 
             if self.posting_list_files[tier] is None:
                 tier += 1
                 continue
             tmp_posting_list, is_not = self.evaluate_node(query.root, tier)
-            results.union(tmp_posting_list, merge_items=self.add_bm25)
+            postings.union(tmp_posting_list, merge_items=self.add_bm25)
             tier += 1
 
         cdef clock_t end = clock()
@@ -288,15 +303,13 @@ cdef class Engine:
         cdef list docs
         cdef list doc_ids
         cdef list scores
-        doc_ids = [res.doc_id for res in results]
-        scores = [res.score if not is_not else 0.0 for res in results]
-        start = clock()
+        doc_ids = [res.doc_id for res in postings]
+        scores = [res.score if not is_not else 0.0 for res in postings]
         docs = self._get_not_documents(doc_ids, limit) if is_not else self._get_documents(doc_ids, limit)
-        end = clock()
-        elapsed = (end - start) / CLOCKS_PER_SEC * 1000
-        print(f"- Document retrieval took {elapsed:.4f} milliseconds")
+        cdef list snippets = []
+        for doc, posting in zip(docs, postings):
+            snippets.append(self.get_document_snippet(doc, posting))
 
-        scores_and_docs = zip(scores, docs)
-        sorted_scores_and_docs = sorted(scores_and_docs, key=first_of_tuple, reverse=True)
+        search_results = sorted(zip(scores, docs, snippets), key=first_of_tuple, reverse=True)
 
-        return sorted_scores_and_docs
+        return search_results
