@@ -1,4 +1,5 @@
 import gzip
+import time
 from typing import Generator
 
 from sea.document import Document
@@ -35,7 +36,7 @@ def load_documents(
         for line in file:
             if count >= max_documents:
                 break
-            columns = line.strip().split("\t")
+            columns = line.split("\t", 3)
             if len(columns) < 4:
                 incomplete_lines += 1
                 continue

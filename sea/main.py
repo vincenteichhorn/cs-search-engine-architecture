@@ -9,15 +9,16 @@ from sea.util.load import load_documents
 
 class SEAConfig:
     INDEX_PATH = "./data/indices/10k"
-    DOCUMENTS_PATH = "./data/msmarco-docs.tsv.gz"
+    DOCUMENTS_PATH = "./data/msmarco-docs.tsv"
     MAX_DOCUMENTS = 10_000  # 3_213_835
     PARTITION_SIZE = 10_000
     DOCUMENTS_DATA_FILE_NAME = "documents.dat"
-    DOCUMENTS_INDEX_FILE_NAME = "document.idx"
+    DOCUMENTS_INDEX_FILE_NAME = "documents.idx"
     POSTINGS_DATA_FILE_NAME = "postings.dat"
     POSTINGS_INDEX_FILE_NAME = "postings.idx"
     PARTITION_PREFIX = "part"
     TIER_PREFIX = "tier"
+    REINDEX_DOCUMENTS = True
     NUM_FIELDS = 2
     FIELD_BOOSTS = [1.0, 0.5]
     NUM_TIERS = 4
@@ -47,7 +48,11 @@ def main():
     while True:
         print("\n")
         query_text = input("Enter your search query: ")
-        query = Query(query_text, tokenizer)
+        try:
+            query = Query(query_text, tokenizer)
+        except Exception as e:
+            print(f"Error parsing query: {e}")
+            continue
         start = time.time()
         results = engine.search(query, limit=10)
         end = time.time()

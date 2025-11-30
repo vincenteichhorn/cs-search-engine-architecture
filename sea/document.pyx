@@ -1,11 +1,9 @@
 from sea.posting import Posting
 from sea.tokenizer import Tokenizer
-from collections import defaultdict
-from typing import List
 import struct
-from libc.time cimport clock, CLOCKS_PER_SEC, clock_t
 from libc.stdint cimport uint8_t
 from cpython.unicode cimport PyUnicode_DecodeUTF8
+from array import array
 
 cdef int NEXT_ID = 1
 
@@ -68,35 +66,67 @@ cdef class Document:
         self.num_title_tokens = -1
 
     def __init__(self, title, url, body, tokenizer: Tokenizer = None):
-        if tokenizer is not None:
-            self._tokenize()
-            self._compute_positions()
-
+        self.title = title
+        self.url = url
+        self.body = body
+        self.tokenizer = tokenizer
     
     def __repr__(self):
         return f"Document(id={self.id}, title={self.title}, url={self.url})"
+
+    cpdef void ensure_tokenized(self):
+        """
+        Ensures that the document is tokenized
+        """
+        if self.tokens is None:
+            self._tokenize()
+            self._compute_positions()
 
     cdef void _tokenize(self):
         """
         Calls the tokenizer to tokenize the document's content
         """
-        if self.tokens is None:
-            self.tokens, self.char_positions, self.num_title_chars, self.num_title_tokens = self.tokenizer.tokenize_document(self)
+        if self.tokens is not None:
+            return
 
+        cdef list title_toks
+        cdef list char_title_positions
+        self.tokens, self.char_positions = self.tokenizer.tokenize(self.title, False)
+        self.num_title_tokens = len(self.tokens)
+        self.num_title_chars = len(self.title)
+        cdef list body_toks
+        cdef list char_body_positions
+        body_toks, char_body_positions = self.tokenizer.tokenize(self.body, False)
+        self.tokens.extend(body_toks)
+        self.char_positions.extend(char_body_positions)
+
+    cpdef list get_tokens_unique(self):
+        """
+        Returns the tokens of the document, tokenizing if necessary
+        """
+        self.ensure_tokenized()
+        if self.token_char_positions is not None:
+            return list(self.token_char_positions.keys())
+        raise ValueError("Document must be tokenized before getting unique tokens.")
 
     cdef void _compute_positions(self):
         """
         Counts the frequency of each token in the document
         """
-        cdef object token_char_positions = {}
-        cdef Py_ssize_t i
+        cdef Py_ssize_t i, n = len(self.tokens)
         cdef object token
+        cdef object char_position
+        cdef object token_char_positions = {}
 
         if self.token_char_positions is None and self.tokens is not None:
-            for i, (token, char_position) in enumerate(zip(self.tokens, self.char_positions)):
-                if token not in token_char_positions:
-                    token_char_positions[token] = []
-                token_char_positions[token].append(char_position)
+            for i in range(n):
+                token = self.tokens[i]
+                char_position = self.char_positions[i]
+                lst = token_char_positions.get(token)
+                if lst is None:
+                    lst = []
+                    token_char_positions[token] = lst
+                lst.append(char_position)
 
             self.token_char_positions = token_char_positions
         else:
@@ -107,6 +137,7 @@ cdef class Document:
         """
         Serialize document into a contiguous bytearray using preallocated buffer.
         """
+        self.ensure_tokenized()
         cdef bytes title_bytes = self.title.encode('utf-8')
         cdef bytes url_bytes = self.url.encode('utf-8')
         cdef bytes body_bytes = self.body.encode('utf-8')
@@ -145,6 +176,7 @@ cdef class Document:
         """
         Returns a Posting object for the given token in this document.
         """
+        self.ensure_tokenized()
         cdef list char_positions = self.token_char_positions.get(token, [])
         cdef int tf_body = 0
         cdef int tf_title = 0

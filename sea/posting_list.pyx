@@ -8,51 +8,39 @@ cpdef object posting_list_from_list(list items, object key=None, bint sorted=Fal
         PostingList: A new PostingList instance containing the provided items.
     """
     cdef object new_list = PostingList(key)
-    if not sorted:
-        for item in items:
-            new_list.add(item)
-        return new_list
     new_list.items = items
+    if sorted:
+        new_list._sorted = True
     return new_list
 
 
 cdef class PostingList:
 
     cdef public list items
+    cdef public bint _sorted    
     cdef object _key
+
     
     def __cinit__(self, key=None):
         self.items = []
         self._key = key
+        self._sorted = False
 
     cpdef void add(self, object item):
+        self.items.append(item)
+        self._sorted = False
+
+    cdef ensure_sorted(self):
         """
-        Adds an item to the posting list while maintaining sorted order. Sorting is
-        based on the provided key function, or the item itself if no key is given.
-
-        Arguments:
-            item (object): The item to be added to the posting list.
+        Ensures that the posting list is sorted based on the key function.
         """
-
-        cdef object object_key = item if self._key is None else self._key(item)
-        cdef int lo = 0
-        cdef int hi = len(self.items)
-        cdef int mid
-        cdef object mid_item, mid_key
-
-        while lo < hi:
-            mid = (lo + hi) // 2
-            mid_item = self.items[mid]
-            mid_key = mid_item if self._key is None else self._key(mid_item)
-            if object_key < mid_key:
-                hi = mid
-            elif object_key > mid_key:
-                lo = mid + 1
+        if not self._sorted:
+            if self._key is None:
+                self.items.sort()
             else:
-                return  # Item already exists
-
-        self.items.insert(lo, item)
-
+                self.items.sort(key=self._key)
+            self._sorted = True
+        
     cpdef PostingList intersection(self, PostingList other, object additional_constraint = None, object merge_items = None):
         """
         Returns a new PostingList that is the intersection of this list and another.
@@ -63,6 +51,8 @@ cdef class PostingList:
         Returns:
             PostingList: A new PostingList containing items present in both lists.
         """
+        self.ensure_sorted()
+        other.ensure_sorted()
         cdef list new_items = []
         cdef int i = 0
         cdef int j = 0
@@ -99,6 +89,8 @@ cdef class PostingList:
         Returns:
             PostingList: A new PostingList containing all unique items from both lists.
         """
+        self.ensure_sorted()
+        other.ensure_sorted()
         cdef list new_items = []
         cdef int i = 0
         cdef int j = 0
@@ -142,6 +134,8 @@ cdef class PostingList:
         Returns:
             PostingList: A new PostingList containing items present in this list but not in the other.
         """
+        self.ensure_sorted()
+        other.ensure_sorted()
         cdef list new_items = []
         cdef int i = 0
         cdef int j = 0
@@ -178,8 +172,10 @@ cdef class PostingList:
         Returns:
             PostingList: A new PostingList instance with the same items and key function.
         """
+        self.ensure_sorted()
         cdef PostingList new_list = PostingList(self._key)
         new_list.items = self.items.copy()
+        new_list._sorted = self._sorted
         return new_list
 
     @classmethod
@@ -195,13 +191,17 @@ cdef class PostingList:
         return posting_list_from_list(items, key, sorted)
 
     def __len__(self):
+        self.ensure_sorted()
         return len(self.items)
 
     def __iter__(self):
+        self.ensure_sorted()
         return iter(self.items)
 
     def __repr__(self) -> str:
+        self.ensure_sorted()
         return f"PostingList({self.items})"
     
     def __getitem__(self, int index):
+        self.ensure_sorted()
         return self.items[index]

@@ -2,9 +2,7 @@ import mmap
 import os
 
 from sea.posting_list import PostingList, posting_list_from_list
-from sea.document import Document, document_deserialize
-from sea.posting import Posting
-from sea.util.gamma import BitReader
+from sea.document import document_deserialize
 from libc.time cimport clock, CLOCKS_PER_SEC, clock_t
 from libc.stdint cimport uint8_t, uint64_t
 from cpython.unicode cimport PyUnicode_DecodeUTF8
@@ -273,10 +271,15 @@ cdef class Engine:
         if query.root is None:
             return []
 
-        cdef list corrected_query_tokens = query.tokens
+        cdef str corrected_query = ""
+        cdef str correction
+        cdef str sep = ""
         for i, qtok in enumerate(query.tokens):
-            corrected_query_tokens[i] = self.spelling_corrector.get_top_correction(qtok)
-        cdef str corrected_query = " ".join(corrected_query_tokens)
+            correction = self.spelling_corrector.get_top_correction(qtok)
+            correction = correction if correction != "" else qtok
+            sep = "" if correction in ['"', '(', ')'] else " "
+            corrected_query += sep + correction
+        corrected_query = corrected_query.strip()
         if corrected_query != query.input:
             print(f"Did you mean: {corrected_query}?")
         
@@ -284,8 +287,8 @@ cdef class Engine:
         cdef object tmp_posting_list
         cdef bint is_not = False
         cdef int tier = 0
+        cdef list skipped_tiers = []
 
-        cdef clock_t start = clock()
 
         while len(postings) < limit and tier < self.config.NUM_TIERS:
 
@@ -293,12 +296,12 @@ cdef class Engine:
                 tier += 1
                 continue
             tmp_posting_list, is_not = self.evaluate_node(query.root, tier)
+            if len(tmp_posting_list) == 0:
+                skipped_tiers.append(tier)
             postings.union(tmp_posting_list, merge_items=self.add_bm25)
             tier += 1
 
-        cdef clock_t end = clock()
-        cdef double elapsed = (end - start) / CLOCKS_PER_SEC * 1000
-        print(f"- Query evaluation took {elapsed:.4f} milliseconds")
+        print(f"Looked into {tier} tiers, skipped tiers: {skipped_tiers}")
 
         cdef list docs
         cdef list doc_ids

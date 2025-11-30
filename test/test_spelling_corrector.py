@@ -22,7 +22,7 @@ def test_get_corrections():
     tokens = ["hello", "yellow", "yes", "hollow", "held", "deoxyribonucleic"]
     corrector = SpellingCorrector(tokens)
 
-    corrections = corrector.get_corrections_all("halo")
+    corrections = corrector.get_corrections_all("halo", threshold=0.3)
     assert corrections == ["hello"]
 
 

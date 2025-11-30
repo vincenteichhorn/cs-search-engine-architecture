@@ -60,14 +60,16 @@ cdef class SpellingCorrector:
     cpdef object get_candidates(self, list bigrams):
 
         cdef object candidates = PostingList(identity)
-        for bi in bigrams:
-            candidates.union(self.index[bi])
-        return list(candidates)
+        try:
+            for bi in bigrams:
+                candidates.union(self.index[bi])
+            return list(candidates)
+        except KeyError:
+            return []
 
     cpdef list get_corrections_all(self, str token, float threshold = 0.7):
         
-        cdef str tok = token.lower().replace('"', '')
-        cdef list bigrams = get_bigrams(tok)
+        cdef list bigrams = get_bigrams(token)
         cdef list candidates = self.get_candidates(bigrams)
         cdef list corrections = []
 
@@ -75,6 +77,7 @@ cdef class SpellingCorrector:
         cdef list cand_bigrams
         for cand in candidates:
             cand_bigrams = get_bigrams(cand)
+            print(cand, jaccard_similarity(bigrams, cand_bigrams))
             if jaccard_similarity(bigrams, cand_bigrams) > threshold:
                 corrections.append(cand)
 
@@ -82,8 +85,7 @@ cdef class SpellingCorrector:
     
     cpdef str get_top_correction(self, str token):
 
-        cdef str tok = token.lower().replace('"', '')
-        cdef list bigrams = get_bigrams(tok)
+        cdef list bigrams = get_bigrams(token)
         cdef list candidates = self.get_candidates(bigrams)
         cdef list corrections = []
 

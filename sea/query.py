@@ -47,7 +47,7 @@ class Query:
         Returns:
             Node: The root node of the binary tree representing the query.
         """
-        self.tokens = self.tokenizer.tokenize_query(input)
+        self.tokens, _ = self.tokenizer.tokenize(input, True)
 
         if self.tokens == []:
             return None

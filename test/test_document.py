@@ -9,6 +9,7 @@ def test_document_serialize():
     body = "This is a test document for serialization."
     tokenizer = Tokenizer()
     document = Document(title, url, body, tokenizer)
+    document.ensure_tokenized()
 
     bytestring = document.serialize()
     deserialized_document = Document.deserialize(bytestring)
