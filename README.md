@@ -28,13 +28,13 @@ bash download.sh
 To run the main application, use:
 
 ```bash
-(poetry run) python -m sea.main
+(poetry run) python3 setup.py build_ext && python3 -m sea.main
 ```
 
 or
 
 ```bash
-(poetry run) sea
+(poetry run) python3 setup.py build_ext && sea
 ```
 
 ## Project Structure

@@ -26,9 +26,6 @@ pystemmer = "^3.0.0"
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
-[tool.poetry.scripts]
-sea = "sea.main:main"
-
 [dependency-groups]
 dev = [
     "ipykernel (>=7.1.0,<8.0.0)"
