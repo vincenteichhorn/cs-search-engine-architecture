@@ -9,9 +9,9 @@ import json
 
 
 class SEAConfig:
-    INDEX_PATH = "./data/indices/all"
+    INDEX_PATH = "./data/indices/100k"
     DOCUMENTS_PATH = "./data/msmarco-docs.tsv"
-    MAX_DOCUMENTS = 3_213_835  # 3_213_835
+    MAX_DOCUMENTS = 100_000  # 3_213_835
     PARTITION_SIZE = 10_000
     DOCUMENTS_DATA_FILE_NAME = "documents.dat"
     DOCUMENTS_INDEX_FILE_NAME = "documents.idx"
@@ -40,17 +40,19 @@ def main():
     tokenizer = Tokenizer()
 
     indexer = Indexer(SEAConfig)
-    # indexer.add_documents(
-    #     load_documents(SEAConfig.DOCUMENTS_PATH, tokenizer, SEAConfig.MAX_DOCUMENTS)
-    # )
+    indexer.add_documents(
+        load_documents(SEAConfig.DOCUMENTS_PATH, tokenizer, SEAConfig.MAX_DOCUMENTS)
+    )
 
-    with open(os.path.join(SEAConfig.INDEX_PATH, "index_meta.json"), "r") as f:
-        meta = json.load(f)
-    indexer.num_total_documents = meta["num_total_documents"]
-    indexer.num_total_postings = meta["num_total_postings"]
-    for i in range(SEAConfig.NUM_FIELDS):
-        indexer.summed_field_lengths[i] = meta["summed_field_lengths"][i]
-    indexer.global_doc_freqs = meta["global_doc_freqs"]
+    # with open(os.path.join(SEAConfig.INDEX_PATH, "index_meta.json"), "r") as f:
+    #     meta = json.load(f)
+    # indexer.num_total_documents = meta["num_total_documents"]
+    # indexer.num_total_postings = meta["num_total_postings"]
+    # for i in range(SEAConfig.NUM_FIELDS):
+    #     indexer.summed_field_lengths[i] = meta["summed_field_lengths"][i]
+    # indexer.global_doc_freqs = meta["global_doc_freqs"]
+    # indexer.partition_id = 101
+
     indexer.merge_partitions()
 
     engine = Engine(SEAConfig)

@@ -209,6 +209,7 @@ cdef class Indexer:
             if os.path.isdir(os.path.join(self.config.INDEX_PATH, d)) and d.startswith(self.config.PARTITION_PREFIX)
         ]
         partition_dirs.sort(key=get_part_id)
+        partition_dirs = [d for d in partition_dirs if get_part_id(d) < self.partition_id]
 
         cdef list posting_lists_files = []
         cdef list posting_list_mmaps = []
