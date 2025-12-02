@@ -17,9 +17,9 @@ cdef int get_part_id(str part_dir):
 cdef int pst_id_key(object pst):
     return pst.doc_id
 
-cdef tuple get_next_term_entry(uint8_t[:] posting_index_view, int view_offset=0):
+cdef tuple get_next_term_entry(const uint8_t[:] posting_index_view, int view_offset=0):
     cdef int cur = view_offset
-    cdef uint8_t* tmp_ptr = &posting_index_view[0]
+    cdef const uint8_t* tmp_ptr = &posting_index_view[0]
     if cur + 4 > posting_index_view.shape[0]:
         return "", b"", 0, 0, 0
     cdef int token_length = (posting_index_view[cur] << 24) | (posting_index_view[cur+1] << 16) | (posting_index_view[cur+2] << 8) | posting_index_view[cur+3]
@@ -88,12 +88,12 @@ cdef class Indexer:
                     os.remove(fpath)
 
         # Remove old partition dirs
-        for item in os.listdir(self.config.INDEX_PATH):
-            item_path = os.path.join(self.config.INDEX_PATH, item)
-            if os.path.isdir(item_path) and (item.startswith(self.config.PARTITION_PREFIX) or item.startswith(self.config.TIER_PREFIX)):
-                for file in os.listdir(item_path):
-                    os.remove(os.path.join(item_path, file))
-                os.rmdir(item_path)
+        # for item in os.listdir(self.config.INDEX_PATH):
+        #     item_path = os.path.join(self.config.INDEX_PATH, item)
+        #     if os.path.isdir(item_path) and (item.startswith(self.config.PARTITION_PREFIX) or item.startswith(self.config.TIER_PREFIX)):
+        #         for file in os.listdir(item_path):
+        #             os.remove(os.path.join(item_path, file))
+        #         os.rmdir(item_path)
 
     cpdef add_documents(self, object documents):
         cdef object document
@@ -212,27 +212,15 @@ cdef class Indexer:
 
         cdef list posting_lists_files = []
         cdef list posting_list_mmaps = []
-        cdef list posting_list_views = []
         cdef list posting_indices_files = []
         cdef list posting_indices_mmaps = []
-        cdef list posting_indices_views = []
         cdef list posting_indices_offsets = [0] * len(partition_dirs)
-        cdef object pl_file, pi_file, mm
-        cdef const uint8_t[:] view
+        cdef object pl_file, pi_file
         for part_dir in partition_dirs:
             pl_file = open(os.path.join(part_dir, self.config.POSTINGS_DATA_FILE_NAME), "rb")
-            mm = mmap.mmap(pl_file.fileno(), 0, access=mmap.ACCESS_READ)
-            view = mm
             posting_lists_files.append(pl_file)
-            posting_list_mmaps.append(mm)
-            posting_list_views.append(view)
             pi_file = open(os.path.join(part_dir, self.config.POSTINGS_INDEX_FILE_NAME), "rb")
-            mm = mmap.mmap(pi_file.fileno(), 0, access=mmap.ACCESS_READ)
-            view = mm
             posting_indices_files.append(pi_file)
-            posting_indices_mmaps.append(mm)
-            posting_indices_views.append(view)
-
 
         cdef list tier_posting_list_files = []
         cdef list tier_posting_index_files = []
@@ -256,9 +244,11 @@ cdef class Indexer:
         cdef unsigned long long offset
         cdef int length
         cdef int bytes_read
+        cdef const uint8_t[:] tmp_view
 
         for pid in range(len(partition_dirs)):
-            token_str, token_bytes, offset, length, bytes_read = get_next_term_entry(posting_indices_views[pid], posting_indices_offsets[pid])
+            tmp_view = mmap.mmap(posting_indices_files[pid].fileno(), 0, access=mmap.ACCESS_READ)
+            token_str, token_bytes, offset, length, bytes_read = get_next_term_entry(tmp_view, posting_indices_offsets[pid])
             posting_indices_offsets[pid] += bytes_read
             heapq.heappush(candidate_partitions, (token_str, token_bytes, pid, offset, length))
 
@@ -300,7 +290,8 @@ cdef class Indexer:
 
             tmp_cur = 0
             df = self.global_doc_freqs.get(token_str, 1)
-            current_postinglist_bytes = bytearray(posting_list_views[pid][offset:offset+length])
+            tmp_view = mmap.mmap(posting_lists_files[pid].fileno(), 0, access=mmap.ACCESS_READ)
+            current_postinglist_bytes = bytearray(tmp_view[offset:offset+length])
             idf = math.log((self.num_total_documents - df + 0.5)/(df + 0.5))
             while tmp_cur < length:
                 tmp_field_freqs, tmp_field_lengths, tmp_posting_length = deserialize_for_scoring(current_postinglist_bytes, tmp_cur)
@@ -326,16 +317,16 @@ cdef class Indexer:
 
                 tmp_cur += tmp_posting_length
     
-
-            token_str, token_bytes, offset, length, bytes_read = get_next_term_entry(posting_indices_views[pid], posting_indices_offsets[pid])
+            tmp_view = mmap.mmap(posting_indices_files[pid].fileno(), 0, access=mmap.ACCESS_READ)
+            token_str, token_bytes, offset, length, bytes_read = get_next_term_entry(tmp_view, posting_indices_offsets[pid])
             posting_indices_offsets[pid] += bytes_read
             if token_str == "":
                 pid = -1  # mark as done
             heapq.heappush(candidate_partitions, (token_str, token_bytes, pid, offset, length))
 
-        for i in range(len(partition_dirs)):
-            posting_lists_files[i].close()
-            posting_indices_files[i].close()
-            os.remove(os.path.join(partition_dirs[i], self.config.POSTINGS_DATA_FILE_NAME))
-            os.remove(os.path.join(partition_dirs[i], self.config.POSTINGS_INDEX_FILE_NAME))
-            os.rmdir(partition_dirs[i])
+        # for i in range(len(partition_dirs)):
+        #     posting_lists_files[i].close()
+        #     posting_indices_files[i].close()
+        #     os.remove(os.path.join(partition_dirs[i], self.config.POSTINGS_DATA_FILE_NAME))
+        #     os.remove(os.path.join(partition_dirs[i], self.config.POSTINGS_INDEX_FILE_NAME))
+        #     os.rmdir(partition_dirs[i])
