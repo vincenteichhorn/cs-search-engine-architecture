@@ -8,6 +8,7 @@ LIB = "../build/lib.linux-x86_64-cpython-312"
 FILE_EXT = ".cpython-312-x86_64-linux-gnu.so"
 MODULES = [
     "util.memory",
+    "util.fast_stemmer",
     "disk_array",
     "tokenizer",
     "corpus",

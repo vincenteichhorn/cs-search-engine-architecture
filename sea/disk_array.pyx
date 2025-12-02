@@ -1,8 +1,10 @@
+# cython: boundscheck=False
 import os
 import mmap
 from libcpp.vector cimport vector
 from libc.stdint cimport uint8_t, uint32_t, uint64_t
-from sea.util.memory cimport read_uint64, read_uint32, SmartBuffer
+from sea.util.memory cimport read_uint64, read_uint32
+from array import array
 
 cdef class DiskArray:
 
@@ -51,9 +53,17 @@ cdef class DiskArray:
         if self.data_size > 0:
             self.data_map = mmap.mmap(self.data_file_read.fileno(), self.data_size, access=mmap.ACCESS_READ)
     
-    cpdef uint64_t append(self, const uint8_t* data, uint64_t offset, uint64_t length):
-        for i in range(length):
-            self.data_buffer.push_back(data[offset + i])
+    cpdef uint64_t py_append(self, bytes data):
+        cdef uint64_t offset = 0
+        cdef uint64_t length = len(data)
+        cdef const uint8_t* ptr = <const uint8_t*>data
+        return self.append(ptr, offset, length)
+
+    cdef uint64_t append(self, const uint8_t* data, uint64_t offset, uint64_t length) noexcept nogil:
+        cdef uint64_t i = offset
+        while i < offset + length:
+            self.data_buffer.push_back(data[i])
+            i += 1
         self.data_offsets.push_back(self.current_offset)
         self.data_lengths.push_back(length)
         self.current_offset += length
@@ -63,16 +73,26 @@ cdef class DiskArray:
     cpdef uint64_t size(self):
         return self.current_idx
 
-    cpdef SmartBuffer get(self, uint64_t idx):
+    cpdef bytes py_get(self, uint64_t idx):
+        cdef const uint8_t[:] data
+        try:
+            data = self.get(idx)
+            return bytes(data)
+        except Exception as e:
+            raise IndexError("Index out of bounds") from e
+
+    cdef const uint8_t[:] get(self, uint64_t idx) noexcept nogil:
         cdef uint64_t offset
         cdef uint32_t length
         cdef uint64_t read_idx
         cdef uint64_t cur
-        cdef const uint8_t* data_ptr
+        cdef const uint8_t[:] data
         cdef const uint8_t* index_ptr 
 
         if idx < 0 or idx >= self.current_idx:
-            raise IndexError("Index out of bounds")
+            with gil:
+                data = <uint8_t[:0]> &self.data_buffer[0] # type: ignore
+            return data
 
         if idx < self.current_disk_idx:
             cur = idx * self.entry_size
@@ -82,14 +102,14 @@ cdef class DiskArray:
             offset = read_uint64(index_ptr, cur)
             cur += sizeof(uint64_t)
             length = read_uint32(index_ptr, cur)
-            assert read_idx == idx, "Index mismatch"
-            data_ptr = &self.data_map[0]
-            return SmartBuffer(data_ptr, length, offset)
+            with gil:
+                data = self.data_map[offset:offset+length]
         else:
             offset = self.data_offsets[idx - self.current_disk_idx]
             length = self.data_lengths[idx - self.current_disk_idx]
-            data_ptr = &self.data_buffer[0]
-            return SmartBuffer(data_ptr, length, offset) # type: ignore
+            with gil:
+                data = <uint8_t[:length]> &self.data_buffer[offset] # type: ignore
+        return data
 
     cpdef void flush(self):
         cdef size_t index_entry_size = sizeof(uint64_t) + sizeof(uint32_t)

@@ -93,10 +93,10 @@ def test_document_processor(tmp_path_factory):
     with open(data, "rb") as f:
         for line in f:
             _, doc = corpus.next(document_processor)
-            expected_line = str(line, "utf-8").strip().split("\t")
+            expected_line = str(line, "utf-8").split("\t")
             assert str(doc["url"], "utf-8") == expected_line[1]
             assert str(doc["title"], "utf-8") == expected_line[2]
-            assert str(doc["body"], "utf-8") == expected_line[3]
+            assert str(doc["body"], "utf-8") == expected_line[3].strip("\r\n")
             c += 1
             if c > MAX_ITER:
                 break

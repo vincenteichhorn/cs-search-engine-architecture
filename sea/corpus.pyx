@@ -1,89 +1,115 @@
+# cython: boundscheck=False
 from sea.disk_array cimport DiskArray
-from sea.util.memory cimport SmartBuffer
 from sea.document cimport Document, TokenizedDocument, TokenInfo
 from sea.tokenizer cimport Tokenizer, TokenizedField
 from libc.stdint cimport uint8_t, uint64_t, uint32_t
 from libcpp.string cimport string as cstring
-from libcpp.unordered_map cimport unordered_map
-from libcpp.utility cimport pair
 from cpython.unicode cimport PyUnicode_DecodeUTF8
 from libcpp.vector cimport vector
-from cython.operator cimport dereference, preincrement
 import os
 import mmap
+from libc.time cimport clock, clock_t, CLOCKS_PER_SEC
 
 cpdef str identity_processor(uint64_t id, const uint8_t[:] data, uint64_t offset, uint64_t length):
     cdef const uint8_t* ptr = &data[offset]
     return PyUnicode_DecodeUTF8(<const char*>ptr, length, "")
 
-cpdef Document document_processor(uint64_t id, const uint8_t[:] data, uint64_t offset, uint64_t length):
+cpdef Document document_processor(uint64_t id, const uint8_t[:] data, uint64_t offset, uint64_t length) noexcept nogil:
     cdef const uint8_t* ptr = &data[offset]
-    cdef cstring line = cstring(<const char*>ptr, length)
-    cdef cstring[4] parts
-    cdef int i = 0
-    cdef int start = 0
-    cdef int end = 0
-    for j in range(length):
-        if line[j] == '\t':
-            parts[i] = line.substr(start, j - start)
-            i += 1
-            start = j + 1
-    parts[i] = line.substr(start, length - start - 2).strip() # exclude "\r\n"
+    cdef uint32_t start = 0
+    cdef int field_index = 0
+    cdef char c
     cdef Document doc
     doc.id = id
-    doc.url = parts[1]
-    doc.title = parts[2]
-    doc.body = parts[3]
+    cdef uint32_t i = 0
+    while i < length:
+        c = ptr[i]
+        if c == 9 or c == 10 or c == 13: # \t, \n, \r
+            # skip field_index 0
+            if field_index == 1:
+                doc.url = cstring(<const char*>ptr + start, i - start)
+            elif field_index == 2:
+                doc.title = cstring(<const char*>ptr + start, i - start)
+            elif field_index == 3:
+                doc.body = cstring(<const char*>ptr + start, i - start)
+            start = i + 1
+            field_index += 1
+        i += 1
+    
+    # lowercase url, title, body in place
+    i = 0
+    while i < doc.url.length():
+        if doc.url[i] >= 'A' and doc.url[i] <= 'Z':
+            doc.url[i] = doc.url[i] | 0x20
+        i += 1
+    i = 0
+    while i < doc.title.length():
+        if doc.title[i] >= 'A' and doc.title[i] <= 'Z':
+            doc.title[i] = doc.title[i] | 0x20
+        i += 1
+    i = 0
+    while i < doc.body.length():
+        if doc.body[i] >= 'A' and doc.body[i] <= 'Z':
+            doc.body[i] = doc.body[i] | 0x20
+        i += 1
+
     return doc
 
-cpdef TokenizedDocument tokenized_document_processor(uint64_t id, const uint8_t[:] data, uint64_t offset, uint64_t length, Tokenizer tokenizer):
+cpdef TokenizedDocument tokenized_document_processor(uint64_t id, const uint8_t[:] data, uint64_t offset, uint64_t length, Tokenizer tokenizer) noexcept nogil:
     
     cdef Document doc = document_processor(id, data, offset, length)
 
-    cdef TokenizedField title_field = tokenizer.tokenize(doc.title, is_query=False)
-    cdef TokenizedField body_field = tokenizer.tokenize(doc.body, is_query=False)
+    cdef const char* title_ptr = <const char*>doc.title.data()
+    cdef const char* body_ptr = <const char*>doc.body.data()
+    cdef TokenizedField title_field = tokenizer.tokenize(title_ptr, <uint32_t>doc.title.length(), False)
+    cdef TokenizedField body_field = tokenizer.tokenize(body_ptr, <uint32_t>doc.body.length(), False)
+    cdef uint32_t max_token_id = title_field.max_token_id
+    if body_field.max_token_id > max_token_id:
+        max_token_id = body_field.max_token_id
 
-    cdef unordered_map[uint32_t, TokenInfo] token_map = unordered_map[uint32_t, TokenInfo]()
-
+    cdef vector[TokenInfo] token_infos = vector[TokenInfo](max_token_id + 1)
+    cdef vector[bint] seen = vector[bint](max_token_id + 1, False)
+    cdef uint32_t num_unique_tokens = 0
     cdef uint32_t num_title_tokens = title_field.length
     cdef TokenInfo info
-    cdef pair[unordered_map[uint32_t, TokenInfo].iterator, bint] result
     cdef uint32_t i
     cdef uint32_t token
 
     for i in range(title_field.length):
         token = title_field.tokens[i]
-        info.char_position = title_field.char_positions[i]
-        info.token_position = i
-        info.frequency = 1
-        result = token_map.insert((token, info))
-        if not result.second:
-            dereference(result.first).second.frequency += 1
-    for i in range(title_field.length):
-        token = title_field.tokens[i]
-        info.char_position = title_field.char_positions[i]
-        info.token_position = num_title_tokens + i
-        info.frequency = 1
-        result = token_map.insert((token, info))
-        if not result.second:
-            dereference(result.first).second.frequency += 1
+        if not seen[token]:
+            token_infos[token].char_position = title_field.char_positions[i]
+            token_infos[token].token_position = i
+            token_infos[token].frequency = 1
+            seen[token] = True
+            num_unique_tokens += 1
+        else:
+            token_infos[token].frequency += 1
+    for i in range(body_field.length):
+        token = body_field.tokens[i]
+        if not seen[token]:
+            token_infos[token].char_position = body_field.char_positions[i]
+            token_infos[token].token_position = num_title_tokens + i
+            token_infos[token].frequency = 1
+            seen[token] = True
+            num_unique_tokens += 1
+        else:
+            token_infos[token].frequency += 1
 
     cdef TokenizedDocument tdoc
     tdoc.id = doc.id
     tdoc.field_lengths.reserve(2)
     tdoc.field_lengths.push_back(title_field.length)
     tdoc.field_lengths.push_back(body_field.length)
+    tdoc.tokens.reserve(num_unique_tokens)
+    tdoc.token_infos.reserve(num_unique_tokens)
 
-    tdoc.tokens.reserve(token_map.size())
-    tdoc.token_infos.reserve(token_map.size())
-
-    cdef unordered_map[uint32_t, TokenInfo].iterator it = token_map.begin()
     i = 0
-    while it != token_map.end():
-        tdoc.tokens.push_back(dereference(it).first)
-        tdoc.token_infos.push_back(dereference(it).second)
+    while i < seen.size():
+        if seen[i]:
+            tdoc.tokens.push_back(i)
+            tdoc.token_infos.push_back(token_infos[i])
         i += 1
-        preincrement(it)
 
     return tdoc
 
@@ -100,8 +126,9 @@ cdef class Corpus:
         self.data_offset = self.disk_array.data_size
 
     cpdef object get(self, uint64_t idx, object processor):
-        cdef SmartBuffer buffer = self.disk_array.get(idx)
-        return processor(idx, buffer.ptr, 0, buffer.size)
+        cdef const uint8_t[:] buffer = self.disk_array.get(idx)
+        cdef const uint8_t* ptr = &buffer[0]
+        return processor(idx, ptr, 0, buffer.shape[0])
 
     cpdef void flush(self):
         self.disk_array.flush()

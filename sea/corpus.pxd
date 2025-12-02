@@ -5,8 +5,8 @@ from sea.tokenizer cimport Tokenizer
 from libc.stdint cimport uint8_t, uint64_t
 
 cpdef str identity_processor(uint64_t id, const uint8_t[:] data, uint64_t offset, uint64_t length)
-cpdef Document document_processor(uint64_t id, const uint8_t[:] data, uint64_t offset, uint64_t length)
-cpdef TokenizedDocument tokenized_document_processor(uint64_t id, const uint8_t[:] data, uint64_t offset, uint64_t length, Tokenizer tokenizer)
+cpdef Document document_processor(uint64_t id, const uint8_t[:] data, uint64_t offset, uint64_t length) noexcept nogil
+cpdef TokenizedDocument tokenized_document_processor(uint64_t id, const uint8_t[:] data, uint64_t offset, uint64_t length, Tokenizer tokenizer) noexcept nogil
 
 cdef class Corpus:
     cdef str save_path
