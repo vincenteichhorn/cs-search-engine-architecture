@@ -1,6 +1,6 @@
 from sea.corpus import (
     Corpus,
-    identity_processor,
+    py_string_processor,
     py_document_processor,
     py_tokenized_document_processor,
 )
@@ -18,7 +18,7 @@ def test_corpus_iter(tmp_path_factory):
     c = 0
     with open(data, "rb") as f:
         for line in f:
-            _, docB = corpus.next(identity_processor)
+            _, docB = corpus.py_next(py_string_processor)
             assert str(line, "utf-8") == docB
             c += 1
             if c > MAX_ITER:
@@ -26,7 +26,7 @@ def test_corpus_iter(tmp_path_factory):
     c = 0
     with open(data, "rb") as f:
         for line in f:
-            docB = corpus.get(c, identity_processor)
+            docB = corpus.py_get(c, py_string_processor)
             assert str(line, "utf-8") == docB
             c += 1
             if c > MAX_ITER:
@@ -43,7 +43,7 @@ def test_corpus_persitence(tmp_path_factory):
     c = 0
     with open(data, "rb") as f:
         for line in f:
-            _, docB = corpus.next(identity_processor)
+            _, docB = corpus.py_next(py_string_processor)
             assert str(line, "utf-8") == docB
             c += 1
             if c > MAX_ITER:
@@ -55,7 +55,7 @@ def test_corpus_persitence(tmp_path_factory):
     c = 0
     with open(data, "rb") as f:
         for line in f:
-            docB = corpus.get(c, identity_processor)
+            docB = corpus.py_get(c, py_string_processor)
             assert str(line, "utf-8") == docB
             c += 1
             if c > MAX_ITER:
@@ -72,7 +72,7 @@ def test_corpus_reload_iter(tmp_path_factory):
     ids = []
     docs = []
     for _ in range(MAX_ITER):
-        id, doc = corpus.next(identity_processor)
+        id, doc = corpus.py_next(py_string_processor)
         ids.append(id)
         docs.append(doc)
 
@@ -81,7 +81,7 @@ def test_corpus_reload_iter(tmp_path_factory):
     corpus = Corpus(tmp_path, data)
 
     for _ in range(MAX_ITER):
-        id, doc = corpus.next(identity_processor)
+        id, doc = corpus.py_next(py_string_processor)
         print(id)
         assert id not in ids
         assert doc not in docs
@@ -97,7 +97,7 @@ def test_document_processor(tmp_path_factory):
     c = 0
     with open(data, "rb") as f:
         for line in f:
-            _, doc = corpus.next(py_document_processor)
+            _, doc = corpus.py_next(py_document_processor)
             expected_line = str(line, "utf-8").split("\t")
             assert doc["url"] == expected_line[1].lower()
             assert doc["title"] == expected_line[2].lower()
@@ -121,7 +121,7 @@ def test_tokenized_document_processor(tmp_path_factory):
     c = 0
     with open(data, "rb") as f:
         for line in f:
-            id, tokenized_document = corpus.next(wrapper)
+            id, tokenized_document = corpus.py_next(wrapper)
             print(tokenized_document)
             assert tokenized_document["id"] == id
             assert len(tokenized_document["tokens"]) > 0

@@ -10,15 +10,18 @@ from libc.time cimport clock, clock_t, CLOCKS_PER_SEC
 from libc.stdlib cimport malloc, calloc, free
 from libcpp.utility cimport pair
 from libcpp.unordered_map cimport unordered_map
+from libcpp.string cimport string as cstring
 
+cpdef str py_string_processor(uint64_t id, const uint8_t[:] data, uint64_t offset, uint64_t length):
+    cdef const uint8_t* ptr = &data[0]
+    return str(string_processor(id, ptr, offset, length), "utf-8")
 
+cdef cstring string_processor(uint64_t id, const uint8_t* data, uint64_t offset, uint64_t length):
+    return cstring(<const char*>data + offset, length)
 
-cpdef str identity_processor(uint64_t id, const uint8_t* data, uint64_t offset, uint64_t length):
-    print("Processing document id:", id, "length:", length, "offset:", offset)
-    return PyUnicode_DecodeUTF8(<const char*>data + offset, length, "")
-
-cpdef object py_document_processor(uint64_t id, const uint8_t* data, uint64_t offset, uint64_t length):
-    cdef Document doc = document_processor(id, data, offset, length)
+cpdef object py_document_processor(uint64_t id, const uint8_t[:] data, uint64_t offset, uint64_t length):
+    cdef const uint8_t* ptr = &data[0]
+    cdef Document doc = document_processor(id, ptr, offset, length)
     return {
         "id": doc.id,
         "url": PyUnicode_DecodeUTF8(doc.url, doc.url_length, ""),
@@ -75,8 +78,9 @@ cdef Document document_processor(uint64_t id, const uint8_t* data, uint64_t offs
 
     return doc
 
-cpdef object py_tokenized_document_processor(uint64_t id, const uint8_t* data, uint64_t offset, uint64_t length, Tokenizer tokenizer):
-    cdef TokenizedDocument tdoc = tokenized_document_processor(id, data, offset, length, tokenizer)
+cpdef object py_tokenized_document_processor(uint64_t id, const uint8_t[:] data, uint64_t offset, uint64_t length, Tokenizer tokenizer):
+    cdef const uint8_t* ptr = &data[0]
+    cdef TokenizedDocument tdoc = tokenized_document_processor(id, ptr, offset, length, tokenizer)
     return {
         "id": tdoc.id,
         "num_fields": tdoc.num_fields,
@@ -87,14 +91,13 @@ cpdef object py_tokenized_document_processor(uint64_t id, const uint8_t* data, u
                 "doc_id_diff": tdoc.postings[i].doc_id_diff,
                 "field_frequencies": [tdoc.postings[i].field_frequencies[j] for j in range(tdoc.num_fields)],
                 "char_positions": [tdoc.postings[i].char_positions[j] for j in range(tdoc.postings[i].char_positions.size())],
-                "token_positions": [tdoc.postings[i].token_positions[j] for j in range(tdoc.postings[i].token_positions.size())],
+                # "token_positions": [tdoc.postings[i].token_positions[j] for j in range(tdoc.postings[i].token_positions.size())],
             }
             for i in range(tdoc.postings.size())
         ],
     }
 
 cdef TokenizedDocument tokenized_document_processor(uint64_t id, const uint8_t* data, uint64_t offset, uint64_t length, Tokenizer tokenizer) noexcept nogil:
-    
     cdef Document doc = document_processor(id, data, offset, length)
     if doc.url_length > 0:
         free(doc.url)
@@ -142,7 +145,7 @@ cdef TokenizedDocument tokenized_document_processor(uint64_t id, const uint8_t* 
 
     cdef Posting pst
     pst.doc_id_diff = 0
-    pst.field_frequencies = <uint32_t*> calloc(2, sizeof(uint32_t))
+    pst.field_frequencies = NULL
 
     i = 0
     while i < num_title_tokens + num_body_tokens:
@@ -160,14 +163,15 @@ cdef TokenizedDocument tokenized_document_processor(uint64_t id, const uint8_t* 
             tdoc.tokens.push_back(token)
             tdoc.postings.emplace_back(pst)
             tdoc.postings[idx].char_positions.push_back(char_pos)
-            tdoc.postings[idx].token_positions.push_back(i)
+            # tdoc.postings[idx].token_positions.push_back(i)
+            tdoc.postings[idx].field_frequencies = <uint32_t*> calloc(2, sizeof(uint32_t))
             tdoc.postings[idx].field_frequencies[field_idx] = 1
             token_to_idx[token] = idx
             num_unique_tokens += 1
         else:
             idx = token_to_idx[token]
             tdoc.postings[idx].char_positions.push_back(char_pos)
-            tdoc.postings[idx].token_positions.push_back(i)
+            # tdoc.postings[idx].token_positions.push_back(i)
             tdoc.postings[idx].field_frequencies[field_idx] += 1
         i += 1
     return tdoc
@@ -184,9 +188,10 @@ cdef class Corpus:
         self.data_map = mmap.mmap(self.data_file.fileno(), self.data_size, access=mmap.ACCESS_READ)
         self.data_offset = self.disk_array.data_size
 
-    cpdef object get(self, uint64_t idx, object processor):
+    cpdef object py_get(self, uint64_t idx, object processor):
         cdef pair[const uint8_t*, uint32_t] slice = self.disk_array.get(idx)
-        return processor(idx, slice.first, 0, slice.second)
+        cdef const uint8_t[:] data = <const uint8_t[:slice.second]>slice.first #type: ignore
+        return processor(idx, data, 0, slice.second)
     
     cdef Document get_document(self, uint64_t idx) noexcept nogil:
         cdef pair[const uint8_t*, uint32_t] slice = self.disk_array.get(idx)
@@ -195,7 +200,7 @@ cdef class Corpus:
     cpdef void flush(self):
         self.disk_array.flush()
 
-    cpdef object next(self, object processor):
+    cpdef object py_next(self, object processor):
         cdef pair[uint64_t, uint64_t] line_info
         cdef uint64_t line_start, line_length
         line_info = self._next_line()
@@ -205,10 +210,7 @@ cdef class Corpus:
         if line_length == 0:
             raise StopIteration()
 
-        cdef const uint8_t* data_ptr = &self.data_map[0]
-        print("Calling processor for document id:", self.disk_array.current_idx - 1, "line_length", line_length, "offset:", line_start)
-        print(PyUnicode_DecodeUTF8(<const char*>data_ptr + line_start, line_length, ""))
-        cdef object result = processor(self.disk_array.current_idx - 1, data_ptr + line_start, 0, line_length)
+        cdef object result = processor(self.disk_array.current_idx - 1, self.data_map, line_start, line_length)
 
         return self.disk_array.current_idx - 1, result
     
@@ -242,6 +244,8 @@ cdef class Corpus:
         cdef TokenizedDocument out
         if line_length == 0:
             out.id = -1
+            out.num_fields = 0
+            out.field_lengths = NULL
             return pair[int64_t, TokenizedDocument](-1, out)
 
         out = tokenized_document_processor(self.disk_array.current_idx - 1, &self.data_map[0], line_start, line_length, tokenizer)

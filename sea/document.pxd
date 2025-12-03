@@ -15,7 +15,7 @@ cdef struct Posting:
     uint32_t doc_id_diff
     uint32_t* field_frequencies
     vector[uint32_t] char_positions
-    vector[uint32_t] token_positions
+    # vector[uint32_t] token_positions
 
 cdef struct TokenizedDocument:
     uint64_t id
