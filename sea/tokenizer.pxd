@@ -28,8 +28,12 @@ cdef class Tokenizer:
     
     cdef inline bint _is_stopword(self, uint64_t token_hash, bint is_query) noexcept nogil
     cdef void _scan(self, const char* text, uint32_t length, vector[const char*]& token_ptrs, vector[uint32_t]& token_lens, vector[uint32_t]& char_positions, bint is_query) noexcept nogil
+    
     cdef TokenizedField tokenize(self, const char* text, uint32_t length, bint is_query) noexcept nogil
     cpdef tuple py_tokenize(self, bytes text, bint is_query)
+    
     cdef const cstring get(self, uint64_t idx) noexcept nogil
     cpdef str py_get(self, uint64_t idx)
+    
     cpdef void flush(self)
+    cdef void _flush(self) noexcept nogil

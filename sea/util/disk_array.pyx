@@ -8,7 +8,7 @@ from libcpp.utility cimport pair
 
 cdef class DiskArray:
 
-    def __cinit__(self, path, name="data"):
+    def __cinit__(self, str path, str name="data"):
 
         self.data_offsets = vector[uint64_t]()
         self.data_lengths = vector[uint32_t]()
@@ -23,20 +23,22 @@ cdef class DiskArray:
         self.data_size = 0
         self._open_maps()
 
-        self.entry_size = sizeof(uint64_t) + sizeof(uint32_t)
+        self.entry_size = sizeof(uint64_t) * 2 + sizeof(uint32_t)
         self.current_offset = 0
         self.current_disk_offset = self.data_size
         self.current_idx = <uint64_t>(<float>self.index_size / <float>self.entry_size)
         self.current_disk_idx = self.current_idx
 
     cdef void _open_maps(self):
-        if self.index_size > 0:
-            self.index_map.flush()
-            self.index_map.close()
-        if self.data_size > 0:
-            self.data_map.flush()
-            self.data_map.close()
-
+        # if self.index_size > 0:
+        #     del self.index_map
+        #     self.index_file_read.close()
+        #     self.index_file_write.close()
+        # if self.data_size > 0:
+        #     del self.data_map
+        #     self.data_file_read.close()
+        #     self.data_file_write.close()
+        
         if not os.path.exists(self.index_file_path):
             open(self.index_file_path, "wb").close()
         self.index_file_read = open(self.index_file_path, "rb")
@@ -99,7 +101,7 @@ cdef class DiskArray:
             return result
 
         if idx < self.current_disk_idx:
-            cur = idx * self.entry_size
+            cur = idx * self.entry_size + 8
             index_ptr = &self.index_map[0]
             offset = read_uint64(index_ptr, cur)
             cur += sizeof(uint64_t)
@@ -112,36 +114,43 @@ cdef class DiskArray:
             result.first = &self.data_buffer[offset]
             result.second = length
         return result
-
+    
     cpdef void flush(self):
+        self._flush()
+
+    cdef void _flush(self) noexcept nogil:
         cdef size_t index_entry_size = sizeof(uint64_t) + sizeof(uint32_t)
         cdef int num_new_entries = self.current_idx - self.current_disk_idx
         cdef uint64_t idx
         cdef uint64_t offset
         cdef uint32_t length
+        cdef uint32_t bytes_written
 
-        for i in range(num_new_entries):
+        with gil:
 
-            idx = self.current_disk_idx + i
-            offset = self.current_disk_offset + self.data_offsets[i]
-            length = self.data_lengths[i]
+            for i in range(num_new_entries):
 
-            self.index_file_write.write(offset.to_bytes(sizeof(uint64_t), 'little'))
-            self.index_file_write.write(length.to_bytes(sizeof(uint32_t), 'little'))
+                idx = self.current_disk_idx + i
+                offset = self.current_disk_offset + self.data_offsets[i]
+                length = self.data_lengths[i]
 
-        self.index_file_write.flush()
+                self.index_file_write.write(idx.to_bytes(sizeof(uint64_t), 'little'))
+                self.index_file_write.write(offset.to_bytes(sizeof(uint64_t), 'little'))
+                self.index_file_write.write(length.to_bytes(sizeof(uint32_t), 'little'))
 
-        cdef uint32_t bytes_written = 0
-        for i in range(self.data_buffer.size()):
-            self.data_file_write.write(self.data_buffer[i].to_bytes(1, 'little'))
-            bytes_written += 1
-        self.data_file_write.flush()
+            self.index_file_write.flush()
 
-        self.data_buffer.clear()
-        self.data_lengths.clear()
-        self.data_offsets.clear()
-        self.current_offset = 0
-        self.current_disk_offset += bytes_written
-        self.current_disk_idx = self.current_idx
-        self._open_maps()
+            bytes_written = 0
+            for i in range(self.data_buffer.size()):
+                self.data_file_write.write(self.data_buffer[i].to_bytes(1, 'little'))
+                bytes_written += 1
+            self.data_file_write.flush()
+
+            self.data_buffer.clear()
+            self.data_lengths.clear()
+            self.data_offsets.clear()
+            self.current_offset = 0
+            self.current_disk_offset += bytes_written
+            self.current_disk_idx = self.current_idx
+            self._open_maps()
 

@@ -198,7 +198,10 @@ cdef class Corpus:
         return document_processor(idx, slice.first, 0, slice.second)
 
     cpdef void flush(self):
-        self.disk_array.flush()
+        self._flush()
+
+    cdef void _flush(self) noexcept nogil:
+        self.disk_array._flush()
 
     cpdef object py_next(self, object processor):
         cdef pair[uint64_t, uint64_t] line_info

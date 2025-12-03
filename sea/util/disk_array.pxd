@@ -28,9 +28,14 @@ cdef class DiskArray:
     cdef uint64_t current_disk_idx
 
     cdef void _open_maps(self)
+    
     cpdef uint64_t py_append(self, bytes data)
     cdef uint64_t append(self, const uint8_t* data, uint64_t offset, uint64_t length) noexcept nogil
+    
     cpdef uint64_t size(self)
+    
     cpdef bytes py_get(self, uint64_t idx)
     cdef pair[const uint8_t*, uint32_t] get(self, uint64_t idx) noexcept nogil
+    
     cpdef void flush(self)
+    cdef void _flush(self) noexcept nogil

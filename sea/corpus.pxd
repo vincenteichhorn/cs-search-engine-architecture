@@ -32,3 +32,4 @@ cdef class Corpus:
     cdef pair[int64_t, TokenizedDocument] next_tokenized_document(self, Tokenizer tokenizer) noexcept nogil
     
     cpdef void flush(self)
+    cdef void _flush(self) noexcept nogil

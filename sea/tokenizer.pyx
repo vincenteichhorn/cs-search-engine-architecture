@@ -157,4 +157,7 @@ cdef class Tokenizer:
         return token.decode('utf-8')
 
     cpdef void flush(self):
-        self.disk_array.flush()
+        self._flush()
+    
+    cdef void _flush(self) noexcept nogil:
+        self.disk_array._flush()
