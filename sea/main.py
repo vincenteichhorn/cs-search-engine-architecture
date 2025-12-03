@@ -39,10 +39,10 @@ def main():
 
     tokenizer = Tokenizer()
 
-    indexer = Indexer(SEAConfig)
-    indexer.add_documents(
-        load_documents(SEAConfig.DOCUMENTS_PATH, tokenizer, SEAConfig.MAX_DOCUMENTS)
-    )
+    # indexer = Indexer(SEAConfig)
+    # indexer.add_documents(
+    #     load_documents(SEAConfig.DOCUMENTS_PATH, tokenizer, SEAConfig.MAX_DOCUMENTS)
+    # )
 
     # with open(os.path.join(SEAConfig.INDEX_PATH, "index_meta.json"), "r") as f:
     #     meta = json.load(f)
@@ -51,9 +51,9 @@ def main():
     # for i in range(SEAConfig.NUM_FIELDS):
     #     indexer.summed_field_lengths[i] = meta["summed_field_lengths"][i]
     # indexer.global_doc_freqs = meta["global_doc_freqs"]
-    # indexer.partition_id = 101
+    # indexer.partition_id = 50
 
-    indexer.merge_partitions()
+    # indexer.merge_partitions()
 
     engine = Engine(SEAConfig)
     while True:

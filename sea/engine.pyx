@@ -56,7 +56,7 @@ cdef class Engine:
         cdef object tmp_file
         cdef object tmp_mmap 
         cdef str file_path
-        cdef int file_size
+        cdef uint64_t file_size
         for tier in range(self.config.NUM_TIERS):
             file_path = os.path.join(self.config.INDEX_PATH, f"{self.config.TIER_PREFIX}{tier}", self.config.POSTINGS_DATA_FILE_NAME)
             file_size = os.path.getsize(file_path)

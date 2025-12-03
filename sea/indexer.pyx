@@ -245,6 +245,7 @@ cdef class Indexer:
         cdef unsigned long long offset
         cdef int length
         cdef int bytes_read
+        cdef object tmp_mm
         cdef const uint8_t[:] tmp_view
 
         for pid in range(len(partition_dirs)):
@@ -291,8 +292,11 @@ cdef class Indexer:
 
             tmp_cur = 0
             df = self.global_doc_freqs.get(token_str, 1)
-            tmp_view = mmap.mmap(posting_lists_files[pid].fileno(), 0, access=mmap.ACCESS_READ)
+            tmp_mm = mmap.mmap(posting_lists_files[pid].fileno(), 0, access=mmap.ACCESS_READ)
+            tmp_view = tmp_mm
             current_postinglist_bytes = bytearray(tmp_view[offset:offset+length])
+            del tmp_view
+            tmp_mm.close()
             idf = math.log((self.num_total_documents - df + 0.5)/(df + 0.5))
             while tmp_cur < length:
                 tmp_field_freqs, tmp_field_lengths, tmp_posting_length = deserialize_for_scoring(current_postinglist_bytes, tmp_cur)
@@ -318,8 +322,11 @@ cdef class Indexer:
 
                 tmp_cur += tmp_posting_length
     
-            tmp_view = mmap.mmap(posting_indices_files[pid].fileno(), 0, access=mmap.ACCESS_READ)
+            tmp_mm = mmap.mmap(posting_indices_files[pid].fileno(), 0, access=mmap.ACCESS_READ)
+            tmp_view = tmp_mm
             token_str, token_bytes, offset, length, bytes_read = get_next_term_entry(tmp_view, posting_indices_offsets[pid])
+            del tmp_view
+            tmp_mm.close()
             posting_indices_offsets[pid] += bytes_read
             if token_str == "":
                 pid = -1  # mark as done
