@@ -9,7 +9,7 @@ FILE_EXT = ".cpython-312-x86_64-linux-gnu.so"
 MODULES = [
     "util.memory",
     "util.fast_stemmer",
-    "disk_array",
+    "util.disk_array",
     "tokenizer",
     "corpus",
     "indexer",

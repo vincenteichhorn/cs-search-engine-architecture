@@ -1,10 +1,10 @@
 import os
 from sea.tokenizer cimport Tokenizer
 from sea.corpus cimport Corpus, document_processor, tokenized_document_processor, TokenizedDocument, Document
-from sea.util.memory cimport SmartBuffer
-from libc.stdint cimport uint64_t, uint32_t, uint8_t
+from libc.stdint cimport uint64_t, uint32_t, uint8_t, int64_t
 from tqdm import tqdm
 from libc.time cimport clock, clock_t, CLOCKS_PER_SEC
+from libcpp.utility cimport pair
 
 cdef class Indexer:
     
@@ -12,7 +12,6 @@ cdef class Indexer:
     cdef uint64_t max_documents
     cdef Tokenizer tokenizer
 
-    cdef double _proc_time
     cdef double _total_time
 
     def __cinit__(self, save_path, uint32_t max_documents=10_000):
@@ -20,32 +19,28 @@ cdef class Indexer:
         os.makedirs(self.save_path, exist_ok=True)
         self.tokenizer = Tokenizer(save_path)
         self.max_documents = max_documents
-        self._proc_time = 0.0
         self._total_time = 0.0
-
-    cdef processor_wrapper(self, uint64_t id, const uint8_t[:] data, uint64_t offset, uint64_t length):
-        cdef clock_t t1 = clock()
-        res = tokenized_document_processor(id, data, offset, length, self.tokenizer)
-        # res = document_processor(id, data, offset, length)
-        cdef clock_t t2 = clock()
-        self._proc_time += (t2 - t1) / CLOCKS_PER_SEC
-        return res
 
     cpdef build(self, Corpus corpus):
        
         cdef uint64_t id = 0, i = 0
+        cdef pair[int64_t, TokenizedDocument] pair
         cdef TokenizedDocument tokenized_document
         # cdef Document tokenized_document
         cdef clock_t start_time = clock()
     
         try:
             while id < self.max_documents:
-                id, tokenized_document = corpus.next(self.processor_wrapper)
-                # print(f"Indexed document ID: {id}, Tokens: {tokenized_document.tokens.size()}")
-                # print("First 10 tokens:", end=" ")
-                # for i in range(min(10, tokenized_document.tokens.size())):
-                #     print(self.tokenizer.get(tokenized_document.tokens[i]), end=" ")
-                # print()
+                pair = corpus.next_tokenized_document(self.tokenizer)
+                id = pair.first
+                tokenized_document = pair.second
+                # if tokenized_document.tokens.size() > 0:
+                #     print(f"Tokenized Document (ID: {tokenized_document.id}):")
+                #     print(f"  Number of tokens: {tokenized_document.tokens.size()}")
+                #     print(f"  Field lengths: {[tokenized_document.field_lengths[j] for j in range(tokenized_document.num_fields)]}")
+                #     print(f"  First token ID: {tokenized_document.tokens[0]}")
+                #     print(f"  First token info: positions={tokenized_document.token_infos[0].token_positions}, field_frequencies={[tokenized_document.token_infos[0].field_frequencies[j] for j in range(tokenized_document.num_fields)]}")
+                #     i += 1
         except StopIteration:
             pass
         cdef clock_t end_time = clock()
@@ -53,6 +48,5 @@ cdef class Indexer:
 
         print(f"Indexing completed in {self._total_time:.2f} seconds.")
         print(f"Docs/sec: {id / self._total_time:.2f}")
-        print(f"Tokenization time: {self._proc_time:.2f}s ({(self._proc_time/self._total_time*100) if self._total_time>0 else 0:.1f}%)")
         print(f"Average time per document: {(self._total_time/id) if id>0 else 0:.8f}s")
-        print(f"Estimated indexing time for 3M documents: {(self._total_time/id*3_000_000/60) if id>0 else 0:.2f}minutes")
+        print(f"Estimated indexing time for 3M documents: {(self._total_time/id*3_000_000/60) if id>0 else 0:.2f} minutes")

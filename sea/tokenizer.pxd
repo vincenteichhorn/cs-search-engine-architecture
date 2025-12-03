@@ -2,7 +2,7 @@ from libc.stdint cimport uint32_t, uint64_t, uint8_t
 from libcpp.vector cimport vector
 from libcpp.unordered_set cimport unordered_set
 from libcpp.string cimport string as cstring
-from sea.disk_array cimport DiskArray
+from sea.util.disk_array cimport DiskArray
 from libcpp.unordered_map cimport unordered_map
 from sea.util.fast_stemmer cimport FastStemmer
 

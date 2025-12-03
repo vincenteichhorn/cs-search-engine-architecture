@@ -1,6 +1,5 @@
 from libcpp.vector cimport vector
 from libc.stdint cimport uint8_t, uint32_t, uint64_t
-from sea.util.memory cimport SmartBuffer
 
 cdef class DiskArray:
     cdef vector[uint64_t] data_offsets

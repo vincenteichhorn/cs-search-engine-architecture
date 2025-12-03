@@ -1,6 +1,6 @@
 import os
 import pytest
-from sea.disk_array import DiskArray
+from sea.util.disk_array import DiskArray
 
 
 def test_disk_array_in_memory(tmp_path_factory):

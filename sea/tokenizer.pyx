@@ -1,12 +1,11 @@
-from libc.stdlib cimport malloc, free
-from libc.string cimport memcpy
+# cython: boundscheck=False
 from libc.stdint cimport uint8_t, uint32_t, uint64_t, int32_t
 from libcpp.vector cimport vector
 from libcpp.unordered_set cimport unordered_set
 from libcpp.string cimport string as cstring
-from libc.time cimport clock, clock_t, CLOCKS_PER_SEC
 from sea.util.fast_stemmer cimport FastStemmer
-
+from sea.util.disk_array cimport DiskArray
+from libc.time cimport clock, clock_t, CLOCKS_PER_SEC
 
 ctypedef const char* ccharp
 
@@ -80,8 +79,7 @@ cdef class Tokenizer:
             char_positions.push_back(start)
 
     cdef TokenizedField tokenize(self, const char* text, uint32_t length, bint is_query) noexcept nogil:
-
-        cdef clock_t t1 = clock()
+        
 
         cdef TokenizedField result
         cdef vector[const char*] token_ptrs = vector[ccharp]()
@@ -92,7 +90,6 @@ cdef class Tokenizer:
         result.tokens = vector[uint32_t]()
         result.char_positions = vector[uint32_t]()
         result.max_token_id = 0
-        cdef clock_t t2 = clock()
 
         cdef uint32_t i = 0
         cdef const char* ptr
@@ -101,11 +98,6 @@ cdef class Tokenizer:
         cdef uint32_t token_id
         cdef uint64_t token_hash
         cdef cstring token_str
-
-        cdef clock_t time_string = 0
-        cdef clock_t time_stopword = 0
-        cdef clock_t time_stem = 0
-        cdef clock_t time_lookup = 0
 
         for i in range(token_ptrs.size()):
             ptr = token_ptrs[i]
