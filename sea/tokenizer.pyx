@@ -6,6 +6,8 @@ from libcpp.string cimport string as cstring
 from sea.util.fast_stemmer cimport FastStemmer
 from sea.util.disk_array cimport DiskArray
 from libc.time cimport clock, clock_t, CLOCKS_PER_SEC
+from libc.stddef cimport size_t
+from libcpp.utility cimport pair
 
 ctypedef const char* ccharp
 
@@ -146,9 +148,8 @@ cdef class Tokenizer:
     cdef const cstring get(self, uint64_t idx) noexcept nogil:
         if idx > self.max_token_id:
             return cstring()
-        cdef const uint8_t[:] data = self.disk_array.get(idx)
-        cdef const char* c_data = <const char*>&data[0]
-        cdef cstring token = cstring(c_data, data.shape[0])
+        cdef pair[const uint8_t*, uint32_t] slice = self.disk_array.get(idx)
+        cdef cstring token = cstring(<const char*>slice.first, slice.second)
         return token
     
     cpdef str py_get(self, uint64_t idx):

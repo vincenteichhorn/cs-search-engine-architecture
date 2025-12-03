@@ -1,5 +1,6 @@
 from libcpp.vector cimport vector
 from libc.stdint cimport uint8_t, uint32_t, uint64_t
+from libcpp.utility cimport pair
 
 cdef class DiskArray:
     cdef vector[uint64_t] data_offsets
@@ -31,5 +32,5 @@ cdef class DiskArray:
     cdef uint64_t append(self, const uint8_t* data, uint64_t offset, uint64_t length) noexcept nogil
     cpdef uint64_t size(self)
     cpdef bytes py_get(self, uint64_t idx)
-    cdef const uint8_t[:] get(self, uint64_t idx) noexcept nogil
+    cdef pair[const uint8_t*, uint32_t] get(self, uint64_t idx) noexcept nogil
     cpdef void flush(self)

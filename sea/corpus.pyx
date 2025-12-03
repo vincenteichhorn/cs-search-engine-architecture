@@ -1,6 +1,6 @@
 # cython: boundscheck=False
 from sea.util.disk_array cimport DiskArray
-from sea.document cimport Document, TokenizedDocument, TokenInfo
+from sea.document cimport Document, TokenizedDocument, Posting
 from sea.tokenizer cimport Tokenizer, TokenizedField
 from libc.stdint cimport uint8_t, uint64_t, uint32_t, int64_t
 from cpython.unicode cimport PyUnicode_DecodeUTF8
@@ -13,12 +13,21 @@ from libcpp.unordered_map cimport unordered_map
 
 
 
-cpdef str identity_processor(uint64_t id, const uint8_t[:] data, uint64_t offset, uint64_t length):
-    cdef const uint8_t* ptr = &data[offset]
-    return PyUnicode_DecodeUTF8(<const char*>ptr, length, "")
+cpdef str identity_processor(uint64_t id, const uint8_t* data, uint64_t offset, uint64_t length):
+    print("Processing document id:", id, "length:", length, "offset:", offset)
+    return PyUnicode_DecodeUTF8(<const char*>data + offset, length, "")
 
-cpdef Document document_processor(uint64_t id, const uint8_t[:] data, uint64_t offset, uint64_t length) noexcept nogil:
-    cdef const uint8_t* ptr = &data[offset]
+cpdef object py_document_processor(uint64_t id, const uint8_t* data, uint64_t offset, uint64_t length):
+    cdef Document doc = document_processor(id, data, offset, length)
+    return {
+        "id": doc.id,
+        "url": PyUnicode_DecodeUTF8(doc.url, doc.url_length, ""),
+        "title": PyUnicode_DecodeUTF8(doc.title, doc.title_length, ""),
+        "body": PyUnicode_DecodeUTF8(doc.body, doc.body_length, ""),
+    }
+
+cdef Document document_processor(uint64_t id, const uint8_t* data, uint64_t offset, uint64_t length) noexcept nogil:
+    cdef const uint8_t* ptr = data + offset
     cdef uint32_t start = 0
     cdef int field_index = 0
     cdef char c
@@ -66,7 +75,25 @@ cpdef Document document_processor(uint64_t id, const uint8_t[:] data, uint64_t o
 
     return doc
 
-cdef TokenizedDocument tokenized_document_processor(uint64_t id, const uint8_t[:] data, uint64_t offset, uint64_t length, Tokenizer tokenizer) noexcept nogil:
+cpdef object py_tokenized_document_processor(uint64_t id, const uint8_t* data, uint64_t offset, uint64_t length, Tokenizer tokenizer):
+    cdef TokenizedDocument tdoc = tokenized_document_processor(id, data, offset, length, tokenizer)
+    return {
+        "id": tdoc.id,
+        "num_fields": tdoc.num_fields,
+        "field_lengths": [tdoc.field_lengths[i] for i in range(tdoc.num_fields)],
+        "tokens": [tdoc.tokens[i] for i in range(tdoc.tokens.size())],
+        "postings": [
+            {
+                "doc_id_diff": tdoc.postings[i].doc_id_diff,
+                "field_frequencies": [tdoc.postings[i].field_frequencies[j] for j in range(tdoc.num_fields)],
+                "char_positions": [tdoc.postings[i].char_positions[j] for j in range(tdoc.postings[i].char_positions.size())],
+                "token_positions": [tdoc.postings[i].token_positions[j] for j in range(tdoc.postings[i].token_positions.size())],
+            }
+            for i in range(tdoc.postings.size())
+        ],
+    }
+
+cdef TokenizedDocument tokenized_document_processor(uint64_t id, const uint8_t* data, uint64_t offset, uint64_t length, Tokenizer tokenizer) noexcept nogil:
     
     cdef Document doc = document_processor(id, data, offset, length)
     if doc.url_length > 0:
@@ -94,8 +121,6 @@ cdef TokenizedDocument tokenized_document_processor(uint64_t id, const uint8_t[:
     cdef uint32_t num_title_tokens = title_field.length
     cdef uint32_t num_body_tokens = body_field.length
 
-    # cdef uint32_t* token_to_idx = <uint32_t*> calloc(max_token_id+1, sizeof(uint32_t))
-    # cdef uint8_t* seen = <uint8_t*> calloc(max_token_id+1, sizeof(uint8_t))
     cdef unordered_map[uint32_t, uint32_t] token_to_idx = unordered_map[uint32_t, uint32_t]()
     cdef unordered_map[uint32_t, uint32_t].iterator iter
 
@@ -113,10 +138,11 @@ cdef TokenizedDocument tokenized_document_processor(uint64_t id, const uint8_t[:
     tdoc.field_lengths[0] = title_field.length
     tdoc.field_lengths[1] = body_field.length
     tdoc.tokens.reserve(num_title_tokens + num_body_tokens)
-    tdoc.token_infos.reserve(num_title_tokens + num_body_tokens)
+    tdoc.postings.reserve(num_title_tokens + num_body_tokens)
 
-    cdef TokenInfo info
-    info.field_frequencies = <uint32_t*> calloc(2, sizeof(uint32_t))
+    cdef Posting pst
+    pst.doc_id_diff = 0
+    pst.field_frequencies = <uint32_t*> calloc(2, sizeof(uint32_t))
 
     i = 0
     while i < num_title_tokens + num_body_tokens:
@@ -132,22 +158,18 @@ cdef TokenizedDocument tokenized_document_processor(uint64_t id, const uint8_t[:
         if iter == token_to_idx.end():
             idx = num_unique_tokens
             tdoc.tokens.push_back(token)
-            tdoc.token_infos.emplace_back(info)
-            tdoc.token_infos[idx].char_positions.push_back(char_pos)
-            tdoc.token_infos[idx].token_positions.push_back(i)
-            tdoc.token_infos[idx].field_frequencies[field_idx] = 1
+            tdoc.postings.emplace_back(pst)
+            tdoc.postings[idx].char_positions.push_back(char_pos)
+            tdoc.postings[idx].token_positions.push_back(i)
+            tdoc.postings[idx].field_frequencies[field_idx] = 1
             token_to_idx[token] = idx
             num_unique_tokens += 1
         else:
             idx = token_to_idx[token]
-            tdoc.token_infos[idx].char_positions.push_back(char_pos)
-            tdoc.token_infos[idx].token_positions.push_back(i)
-            tdoc.token_infos[idx].field_frequencies[field_idx] += 1
+            tdoc.postings[idx].char_positions.push_back(char_pos)
+            tdoc.postings[idx].token_positions.push_back(i)
+            tdoc.postings[idx].field_frequencies[field_idx] += 1
         i += 1
-
-    # free(token_to_idx)
-    # free(seen)
-
     return tdoc
 
 cdef class Corpus:
@@ -163,9 +185,12 @@ cdef class Corpus:
         self.data_offset = self.disk_array.data_size
 
     cpdef object get(self, uint64_t idx, object processor):
-        cdef const uint8_t[:] buffer = self.disk_array.get(idx)
-        cdef const uint8_t* ptr = &buffer[0]
-        return processor(idx, ptr, 0, buffer.shape[0])
+        cdef pair[const uint8_t*, uint32_t] slice = self.disk_array.get(idx)
+        return processor(idx, slice.first, 0, slice.second)
+    
+    cdef Document get_document(self, uint64_t idx) noexcept nogil:
+        cdef pair[const uint8_t*, uint32_t] slice = self.disk_array.get(idx)
+        return document_processor(idx, slice.first, 0, slice.second)
 
     cpdef void flush(self):
         self.disk_array.flush()
@@ -180,7 +205,12 @@ cdef class Corpus:
         if line_length == 0:
             raise StopIteration()
 
-        return self.disk_array.current_idx, processor(self.disk_array.current_idx, self.data_map, line_start, line_length)
+        cdef const uint8_t* data_ptr = &self.data_map[0]
+        print("Calling processor for document id:", self.disk_array.current_idx - 1, "line_length", line_length, "offset:", line_start)
+        print(PyUnicode_DecodeUTF8(<const char*>data_ptr + line_start, line_length, ""))
+        cdef object result = processor(self.disk_array.current_idx - 1, data_ptr + line_start, 0, line_length)
+
+        return self.disk_array.current_idx - 1, result
     
     cdef pair[uint64_t, uint64_t] _next_line(self) noexcept nogil:
         if self.data_offset >= self.data_size:
@@ -214,5 +244,6 @@ cdef class Corpus:
             out.id = -1
             return pair[int64_t, TokenizedDocument](-1, out)
 
-        out = tokenized_document_processor(self.disk_array.current_idx, self.data_map, line_start, line_length, tokenizer)
-        return pair[int64_t, TokenizedDocument](self.disk_array.current_idx, out)
+        out = tokenized_document_processor(self.disk_array.current_idx - 1, &self.data_map[0], line_start, line_length, tokenizer)
+        return pair[int64_t, TokenizedDocument](self.disk_array.current_idx - 1, out)
+    

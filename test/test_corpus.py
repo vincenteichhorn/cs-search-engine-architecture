@@ -1,4 +1,9 @@
-from sea.corpus import Corpus, identity_processor, document_processor, tokenized_document_processor
+from sea.corpus import (
+    Corpus,
+    identity_processor,
+    py_document_processor,
+    py_tokenized_document_processor,
+)
 from sea.tokenizer import Tokenizer
 import pytest
 
@@ -92,11 +97,11 @@ def test_document_processor(tmp_path_factory):
     c = 0
     with open(data, "rb") as f:
         for line in f:
-            _, doc = corpus.next(document_processor)
+            _, doc = corpus.next(py_document_processor)
             expected_line = str(line, "utf-8").split("\t")
-            assert str(doc["url"], "utf-8") == expected_line[1].lower()
-            assert str(doc["title"], "utf-8") == expected_line[2].lower()
-            assert str(doc["body"], "utf-8") == expected_line[3].strip("\r\n").lower()
+            assert doc["url"] == expected_line[1].lower()
+            assert doc["title"] == expected_line[2].lower()
+            assert doc["body"] == expected_line[3].strip("\r\n").lower()
             c += 1
             if c > MAX_ITER:
                 break
@@ -109,8 +114,8 @@ def test_tokenized_document_processor(tmp_path_factory):
     corpus = Corpus(tmp_path, data)
     tokenizer = Tokenizer(tmp_path)
 
-    def wrapper(id, ptr, offset, length):
-        return tokenized_document_processor(id, ptr, offset, length, tokenizer)
+    def wrapper(id, data, offset, length):
+        return py_tokenized_document_processor(id, data, offset, length, tokenizer)
 
     MAX_ITER = 10
     c = 0
@@ -120,7 +125,7 @@ def test_tokenized_document_processor(tmp_path_factory):
             print(tokenized_document)
             assert tokenized_document["id"] == id
             assert len(tokenized_document["tokens"]) > 0
-            assert len(tokenized_document["token_infos"]) == len(tokenized_document["tokens"])
+            assert len(tokenized_document["postings"]) == len(tokenized_document["tokens"])
             c += 1
             if c > MAX_ITER:
                 break

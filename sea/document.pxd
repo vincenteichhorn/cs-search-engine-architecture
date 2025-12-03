@@ -11,7 +11,8 @@ cdef struct Document:
     char* body
     uint32_t body_length
 
-cdef struct TokenInfo:
+cdef struct Posting:
+    uint32_t doc_id_diff
     uint32_t* field_frequencies
     vector[uint32_t] char_positions
     vector[uint32_t] token_positions
@@ -21,4 +22,4 @@ cdef struct TokenizedDocument:
     uint32_t num_fields
     uint32_t* field_lengths
     vector[uint32_t] tokens
-    vector[TokenInfo] token_infos
+    vector[Posting] postings
