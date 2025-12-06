@@ -10,9 +10,13 @@ MODULES = [
     "util.memory",
     "util.fast_stemmer",
     "util.disk_array",
+    "document",
+    "posting_list",
     "tokenizer",
     "corpus",
     "indexer",
+    "query",
+    "engine",
 ]
 
 ret = os.system(SETUP_COMMAND)
