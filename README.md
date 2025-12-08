@@ -31,11 +31,6 @@ To run the main application, use:
 (poetry run) python3 setup.py build_ext && python3 -m sea.main
 ```
 
-or
-
-```bash
-(poetry run) python3 setup.py build_ext && sea
-```
 
 ## Project Structure
 
