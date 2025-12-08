@@ -41,5 +41,6 @@ To run the main application, use:
 ## TODO
 
 - query "cat cat cat", positionen die wir schon benutzt haben nicht nochmal benutzen
-- use doc id differences rather than absolute doc ids in posting lists
-- fix phrase query parsing in tokenizer
+- fix phrase "k"/distance for chars in phrases, dynamix to word lengths of query words/the phrase
+- fix tiered serving
+- fix bm25 score thresholds
