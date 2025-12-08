@@ -1,5 +1,5 @@
 from libcpp.vector cimport vector
-from sea.document cimport Posting, free_posting
+from sea.document cimport Posting
 from libc.stdint cimport uint32_t
 from libcpp cimport bool as cbool
 
@@ -12,8 +12,6 @@ cdef Posting merge_postings(Posting posting1, Posting posting2) noexcept nogil:
     merged_posting.field_frequencies = posting2.field_frequencies
     merged_posting.field_lengths = posting2.field_lengths
     merged_posting.char_positions = posting2.char_positions
-    free_posting(&posting1, True)
-    free_posting(&posting2, False)
     return merged_posting
 
 cdef cbool phrase_constraint(Posting posting1, Posting posting2, uint32_t dist) noexcept nogil:
@@ -50,22 +48,17 @@ cdef void intersection(vector[Posting]& self_items, vector[Posting]& other_items
         posting2 = other_items[j]
 
         if posting1.doc_id < posting2.doc_id:
-            # advance self; free since we don't keep it
+            # advance self;
             i += 1
-            free_posting(&posting1, True)
         elif posting1.doc_id > posting2.doc_id:
-            # advance other; free since we don't keep it
+            # advance other;
             j += 1
-            free_posting(&posting2, True)
         else:
             # equal 
             if phrase and phrase_constraint(posting1, posting2, 1):
                 new_items.push_back(merge_postings(posting1, posting2))
             elif not phrase:
                 new_items.push_back(merge_postings(posting1, posting2))
-            else:
-                free_posting(&posting1, True)
-                free_posting(&posting2, True)
             i += 1
             j += 1
     self_items.swap(new_items)
@@ -86,11 +79,11 @@ cdef void union(vector[Posting]& self_items, vector[Posting]& other_items) noexc
         posting2 = other_items[j]
 
         if posting1.doc_id < posting2.doc_id:
-            # advance self; keep since we keep it
+            # advance self; 
             new_items.push_back(posting1)
             i += 1
         elif posting1.doc_id > posting2.doc_id:
-            # advance other; keep since we keep it
+            # advance other;
             new_items.push_back(posting2)
             j += 1
         else:
@@ -125,19 +118,16 @@ cdef void difference(vector[Posting]& self_items, vector[Posting]& other_items) 
         posting2 = other_items[j]
 
         if posting1.doc_id == posting2.doc_id:
-            # skip both; free since we don't keep them
+            # skip both; 
             i += 1
             j += 1
-            free_posting(&posting1, True)
-            free_posting(&posting2, True)
         elif posting1.doc_id < posting2.doc_id:
             # keep posting1
             new_items.push_back(posting1)
             i += 1
         else:
-            # advance other; free since it's skipped
+            # advance other;
             j += 1
-            free_posting(&posting2, True)
 
     while i < n:
         new_items.push_back(self_items[i])

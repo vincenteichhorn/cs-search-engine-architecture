@@ -16,6 +16,7 @@ MODULES = [
     "corpus",
     "indexer",
     "query",
+    "spelling_corrector",
     "engine",
 ]
 

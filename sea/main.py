@@ -5,9 +5,9 @@ from sea.corpus import Corpus, py_document_processor
 from sea.engine import Engine
 import shutil
 
-INDEX_PATH = "./data/indices_new/100k"
+INDEX_PATH = "./data/indices_new/all"
 DATASET = "./data/msmarco-docs.tsv"  # "./data/testing_merge.tsv"
-MAX_DOCUMENTS = 100_000
+MAX_DOCUMENTS = 3_213_835  # 3_213_835
 PARTITION_SIZE = 20_000
 
 
@@ -17,6 +17,11 @@ def bold_string(s: str) -> str:
 
 def index():
 
+    inp = input(
+        f"Do you really want to (re)build the index at {INDEX_PATH}? This will delete any existing index. (y/n): "
+    )
+    if inp.lower() != "y":
+        return
     if os.path.exists(INDEX_PATH):
         shutil.rmtree(INDEX_PATH, ignore_errors=True)
 
@@ -29,25 +34,24 @@ def serve():
     engine = Engine(INDEX_PATH)
 
     while True:
-        query = input("Enter your query: ")
+        query = input("Search: ")
         start = time.time()
         results = engine.search(query, top_k=10)
         end = time.time()
         print(f"Search took {(end - start) * 1000:.4f} milliseconds.")
-        print("Top results:")
         for doc in results:
             print("-" * os.get_terminal_size().columns)
             print(
                 f"{bold_string('Title')}: {doc['title']}",
                 f"{bold_string('URL')}: {doc['url']}",
                 f"{bold_string('Score')}: {doc['score']:.4f}",
+                f"{bold_string('Snippet')}: {doc['snippet']}\n",
                 sep="\n",
             )
-            print(f"{bold_string('Snippet')}: {doc['snippet']}\n")
 
 
 def main():
-    # index()
+    index()
     serve()
 
 

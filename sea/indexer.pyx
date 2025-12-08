@@ -1,42 +1,35 @@
 import os
 from sea.tokenizer cimport Tokenizer
 from sea.corpus cimport Corpus
-from sea.document cimport free_tokenized_document, TokenizedDocument, Posting, serialize_postings, BytePtr, compare_postings_ptr, update_posting_score, deserialize_postings, free_posting
-from libc.stdint cimport uint64_t, uint32_t, int64_t, UINT64_MAX, uint8_t
+from sea.document cimport free_tokenized_document, TokenizedDocument, Posting, serialize_postings, BytePtr, compare_postings_ptr, update_posting_score, free_posting
+from libc.stdint cimport uint64_t, uint32_t, UINT64_MAX, uint8_t
 from tqdm import tqdm
 from libc.time cimport clock, clock_t, CLOCKS_PER_SEC
 from libcpp.vector cimport vector
 from libcpp.unordered_map cimport unordered_map
-from libc.stdlib cimport malloc, free, realloc
-from libc.string cimport memcpy
+from libc.stdlib cimport free, realloc
 from sea.util.disk_array cimport DiskArray, DiskArrayIterator, EntryInfo
 from libcpp.string cimport string as cstring
 from cython.operator cimport preincrement, dereference
 from libcpp.utility cimport pair
 from libcpp.algorithm cimport sort
 from sea.util.memory cimport get_memory_usage
-from libcpp.queue cimport priority_queue
-import gc
-from libcpp.memory cimport shared_ptr
-from libc.math cimport log
-from sea.util.memory cimport read_uint32
-    
+from libc.math cimport log  
 
 cdef str PARTITION_PREFIX = "partition_"
 cdef str TIER_PREFIX = "tier_"
 cdef list BM25_FIELD_BOOSTS = [1.0, 0.5]
 cdef list BM25_BS = [0.75, 0.75]
-cdef float BM25_K = 1.2
+cdef float BM25_K = 1.5
 
-cdef int NUM_TIERS = 3
-cdef list TIER_THRESHOLDS = [10.0, 5.0, 0.0]
+cdef int NUM_TIERS = 4
+cdef list TIER_THRESHOLDS = [30.0, 20.0, 1.0, 0.0]
 
 ctypedef Posting* PostingPtr
 
 cdef extern from "malloc.h" nogil:
     int malloc_trim(size_t pad)
 
-# create min pq
 cdef extern from * namespace "" nogil:
     """
     #include <queue>
@@ -51,7 +44,6 @@ cdef extern from * namespace "" nogil:
         >;
     """
     cdef cppclass mqueue:
-        # Cython needs to know which methods exist
         mqueue() noexcept nogil
         void push(pair[uint64_t, uint32_t]&) nogil
         pair[uint64_t, uint32_t] top() nogil
@@ -138,7 +130,6 @@ cdef class Indexer:
         cdef TokenizedDocument tokenized_document
         cdef uint32_t field_freq, field_len, token
         cdef clock_t start_time = clock()
-        cdef clock_t t1, t2
 
         cdef size_t estimated_other_mem = 0
     
@@ -187,9 +178,9 @@ cdef class Indexer:
         if self.inverted_index.size() > 0:
             self._flush()
         
-        with gil:
-            print(f"Avg. Docs/sec: {i / total_time:.2f}")
-            print(f"Estimated indexing time for 3M documents: {(total_time/i*3_000_000/60) if i>0 else 0:.2f} minutes")
+        # with gil:
+        #     print(f"Avg. Docs/sec: {i / total_time:.2f}")
+        #     print(f"Estimated indexing time for 3M documents: {(total_time/i*3_000_000/60) if i>0 else 0:.2f} minutes")
         
         with gil:
             self._finalize()

@@ -15,7 +15,7 @@ cdef void print_query_tree(QueryNode* node, uint64_t depth) noexcept nogil:
     if node.left == NULL and node.right == NULL:
         if node.values.size() > 1:
             with gil:
-                print("Phrase: [", end="")
+                print("[", end="")
             for i in range(node.values.size()):
                 with gil:
                     print(f"{node.values[i]}", end="")
@@ -26,10 +26,10 @@ cdef void print_query_tree(QueryNode* node, uint64_t depth) noexcept nogil:
                 print("]")
         else:
             with gil:
-                print(f"Token: {node.values[0]}")
+                print(f"{node.values[0]}")
     else:
         with gil:
-            print(f"Operator: {node.values[0]}")
+            print(f"Op: {node.values[0]}")
         print_query_tree(node.left, depth + 1)
         print_query_tree(node.right, depth + 1)
 
