@@ -1,83 +1,58 @@
 import os
 import time
-from sea.tokenizer import Tokenizer
-from sea.engine import Engine
 from sea.indexer import Indexer
-from sea.query import Query
-from sea.util.load import load_documents
-import json
+from sea.corpus import Corpus, py_document_processor
+from sea.engine import Engine
+import shutil
 
-
-class SEAConfig:
-    INDEX_PATH = "./data/indices/100k"
-    DOCUMENTS_PATH = "./data/msmarco-docs.tsv"
-    MAX_DOCUMENTS = 100_000  # 3_213_835
-    PARTITION_SIZE = 10_000
-    DOCUMENTS_DATA_FILE_NAME = "documents.dat"
-    DOCUMENTS_INDEX_FILE_NAME = "documents.idx"
-    POSTINGS_DATA_FILE_NAME = "postings.dat"
-    POSTINGS_INDEX_FILE_NAME = "postings.idx"
-    PARTITION_PREFIX = "part"
-    TIER_PREFIX = "tier"
-    REINDEX_DOCUMENTS = True
-    NUM_FIELDS = 2
-    FIELD_BOOSTS = [1.0, 0.5]
-    NUM_TIERS = 4
-    TIER_SCORE_THRESHOLDS = [20, 10, 5, 0]
-    BM25_K = 1.5
-    BM25_B_VALUES = [0.75, 0.75]
-    SPELLING_FREQUENCY_THRESHOLD = 100
-    SNIPPET_RADIUS = 150
-    IN_PHRASE_CHARACTER_DISTANCE = 15
+INDEX_PATH = "./data/indices_new/all"
+DATASET = "./data/msmarco-docs.tsv"  # "./data/testing_merge.tsv"
+MAX_DOCUMENTS = 3_213_835  # 3_213_835
+PARTITION_SIZE = 20_000
 
 
 def bold_string(s: str) -> str:
     return f"\033[1m{s}\033[0m"
 
 
-def main():
+def index():
 
-    tokenizer = Tokenizer()
+    inp = input(
+        f"Do you really want to (re)build the index at {INDEX_PATH}? This will delete any existing index. (y/n): "
+    )
+    if inp.lower() != "y":
+        return
+    if os.path.exists(INDEX_PATH):
+        shutil.rmtree(INDEX_PATH, ignore_errors=True)
 
-    # indexer = Indexer(SEAConfig)
-    # indexer.add_documents(
-    #     load_documents(SEAConfig.DOCUMENTS_PATH, tokenizer, SEAConfig.MAX_DOCUMENTS)
-    # )
+    indexer = Indexer(INDEX_PATH, DATASET, MAX_DOCUMENTS, PARTITION_SIZE)
+    indexer.build()
 
-    # with open(os.path.join(SEAConfig.INDEX_PATH, "index_meta.json"), "r") as f:
-    #     meta = json.load(f)
-    # indexer.num_total_documents = meta["num_total_documents"]
-    # indexer.num_total_postings = meta["num_total_postings"]
-    # for i in range(SEAConfig.NUM_FIELDS):
-    #     indexer.summed_field_lengths[i] = meta["summed_field_lengths"][i]
-    # indexer.global_doc_freqs = meta["global_doc_freqs"]
-    # indexer.partition_id = 50
 
-    # indexer.merge_partitions()
+def serve():
 
-    engine = Engine(SEAConfig)
+    engine = Engine(INDEX_PATH)
+
     while True:
-        print("\n")
-        query_text = input("Enter your search query: ")
-        try:
-            query = Query(query_text, tokenizer)
-        except Exception as e:
-            print(f"Error parsing query: {e}")
-            continue
+        query = input("Search: ")
         start = time.time()
-        results = engine.search(query, limit=10)
+        results = engine.search(query, top_k=10)
         end = time.time()
-        print(bold_string(f"Search Results:"))
-        print(f"Found {len(results)} results in {(end - start)*1000:.4f} milliseconds:")
-        for score, doc, snippet in results:
+        print(f"Search took {(end - start) * 1000:.4f} milliseconds.")
+        for doc in results:
             print("-" * os.get_terminal_size().columns)
             print(
-                f"{bold_string('Title')}: {doc.title}",
-                f"{bold_string('URL')}: {doc.url}",
-                f"{bold_string('Score')}: {score:.4f}",
+                f"{bold_string('Title')}: {doc['title']}",
+                f"{bold_string('URL')}: {doc['url']}",
+                f"{bold_string('Score')}: {doc['score']:.4f}",
+                f"{bold_string('Snippet')}: {doc['snippet']}\n",
                 sep="\n",
             )
-            print(f"{bold_string('Snippet')}: {snippet}")
+
+
+def main():
+    index()
+    serve()
 
 
 if __name__ == "__main__":

@@ -1,207 +1,137 @@
-cpdef object posting_list_from_list(list items, object key=None, bint sorted=False):
-    """
-    Creates a PostingList from a given list of items.
-    Arguments:
-        items (list): A list of items to initialize the PostingList with.
-        key (callable, optional): A function to extract a comparison key from each item. Defaults to None.
-    Returns:
-        PostingList: A new PostingList instance containing the provided items.
-    """
-    cdef object new_list = PostingList(key)
-    new_list.items = items
-    if sorted:
-        new_list._sorted = True
-    return new_list
+from libcpp.vector cimport vector
+from sea.document cimport Posting
+from libc.stdint cimport uint32_t
+from libcpp cimport bool as cbool
 
+cdef Posting merge_postings(Posting posting1, Posting posting2) noexcept nogil:
+    assert posting1.doc_id == posting2.doc_id
+    cdef Posting merged_posting
+    merged_posting.doc_id = posting1.doc_id
+    merged_posting.score = posting1.score + posting2.score
+    merged_posting.num_fields = posting2.num_fields
+    merged_posting.field_frequencies = posting2.field_frequencies
+    merged_posting.field_lengths = posting2.field_lengths
+    merged_posting.char_positions = posting2.char_positions
+    return merged_posting
 
-cdef class PostingList:
+cdef cbool phrase_constraint(Posting posting1, Posting posting2, uint32_t dist) noexcept nogil:
+    cdef uint32_t i = 0
+    cdef uint32_t j = 0
+    cdef uint32_t n = posting1.char_positions.size()
+    cdef uint32_t m = posting2.char_positions.size()
 
-    cdef public list items
-    cdef public bint _sorted    
-    cdef object _key
-
-    
-    def __cinit__(self, key=None):
-        self.items = []
-        self._key = key
-        self._sorted = False
-
-    cpdef void add(self, object item):
-        self.items.append(item)
-        self._sorted = False
-
-    cdef ensure_sorted(self):
-        """
-        Ensures that the posting list is sorted based on the key function.
-        """
-        if not self._sorted:
-            if self._key is None:
-                self.items.sort()
-            else:
-                self.items.sort(key=self._key)
-            self._sorted = True
-        
-    cpdef PostingList intersection(self, PostingList other, object additional_constraint = None, object merge_items = None):
-        """
-        Returns a new PostingList that is the intersection of this list and another.
-
-        Arguments:
-            other (PostingList): Another PostingList to intersect with.
-        
-        Returns:
-            PostingList: A new PostingList containing items present in both lists.
-        """
-        self.ensure_sorted()
-        other.ensure_sorted()
-        cdef list new_items = []
-        cdef int i = 0
-        cdef int j = 0
-        cdef int n = len(self.items)
-        cdef int m = len(other.items)
-        cdef object item1, item2, key1, key2
-
-        while i < n and j < m:
-            item1 = self.items[i]
-            item2 = other.items[j]
-            key1 = item1 if self._key is None else self._key(item1)
-            key2 = item2 if other._key is None else other._key(item2)
-
-            if key1 < key2:
-                i += 1
-            elif key1 > key2:
-                j += 1
-            else:
-                if additional_constraint is None or additional_constraint(item1, item2):
-                    new_items.append(item2 if merge_items is None else merge_items(item1, item2))
-                i += 1
-                j += 1
-
-        self.items = new_items
-        return self
-
-    cpdef PostingList union(self, PostingList other, object merge_items = None):
-        """
-        Returns a new PostingList that is the union of this list and another.
-
-        Arguments:
-            other (PostingList): Another PostingList to unite with.
-        
-        Returns:
-            PostingList: A new PostingList containing all unique items from both lists.
-        """
-        self.ensure_sorted()
-        other.ensure_sorted()
-        cdef list new_items = []
-        cdef int i = 0
-        cdef int j = 0
-        cdef int n = len(self.items)
-        cdef int m = len(other.items)
-        cdef object item1, item2, key1, key2
-
-        while i < n and j < m:
-            item1 = self.items[i]
-            item2 = other.items[j]
-            key1 = item1 if self._key is None else self._key(item1)
-            key2 = item2 if other._key is None else other._key(item2)
-
-            if key1 < key2:
-                new_items.append(item1)
-                i += 1
-            elif key1 > key2:
-                new_items.append(item2)
-                j += 1
-            else:
-                new_items.append(item2 if merge_items is None else merge_items(item1, item2))
-                i += 1
-                j += 1
-
-        while i < n:
-            new_items.append(self.items[i])
+    while i < n and j < m:
+        if posting1.char_positions[i] + dist == posting2.char_positions[j]:
+            return True
+        elif posting1.char_positions[i] + dist < posting2.char_positions[j]:
             i += 1
+        else:
+            j += 1
+    return False
 
-        while j < m:
-            new_items.append(other.items[j])
+cdef void intersection(vector[Posting]& self_items, vector[Posting]& other_items, cbool phrase) noexcept nogil:
+
+    cdef vector[Posting] new_items = vector[Posting]()
+    cdef uint32_t num_new_items = self_items.size()
+    if other_items.size() < num_new_items:
+        num_new_items = other_items.size()
+    new_items.reserve(num_new_items)
+
+    cdef int i = 0
+    cdef int j = 0
+    cdef int n = self_items.size()
+    cdef int m = other_items.size()
+    cdef Posting posting1, posting2
+
+    while i < n and j < m:
+        posting1 = self_items[i]
+        posting2 = other_items[j]
+
+        if posting1.doc_id < posting2.doc_id:
+            # advance self;
+            i += 1
+        elif posting1.doc_id > posting2.doc_id:
+            # advance other;
+            j += 1
+        else:
+            # equal 
+            if phrase and phrase_constraint(posting1, posting2, 1):
+                new_items.push_back(merge_postings(posting1, posting2))
+            elif not phrase:
+                new_items.push_back(merge_postings(posting1, posting2))
+            i += 1
+            j += 1
+    self_items.swap(new_items)
+
+cdef void union(vector[Posting]& self_items, vector[Posting]& other_items) noexcept nogil:
+
+    cdef vector[Posting] new_items = vector[Posting]()
+    cdef uint32_t num_new_items = self_items.size() + other_items.size()
+    new_items.reserve(num_new_items)
+    cdef int i = 0
+    cdef int j = 0
+    cdef int n = self_items.size()
+    cdef int m = other_items.size()
+    cdef Posting posting1, posting2
+
+    while i < n and j < m:
+        posting1 = self_items[i]
+        posting2 = other_items[j]
+
+        if posting1.doc_id < posting2.doc_id:
+            # advance self; 
+            new_items.push_back(posting1)
+            i += 1
+        elif posting1.doc_id > posting2.doc_id:
+            # advance other;
+            new_items.push_back(posting2)
+            j += 1
+        else:
+            # equal doc_ids
+            new_items.push_back(merge_postings(posting1, posting2))
+            i += 1
             j += 1
 
-        self.items = new_items
-        return self
+    while i < n:
+        new_items.push_back(self_items[i])
+        i += 1
 
-    cpdef PostingList difference(self, PostingList other):
-        """
-        Returns a new PostingList that is the difference of this list and another.
-        Arguments:
-            other (PostingList): Another PostingList to subtract from this list.
-        Returns:
-            PostingList: A new PostingList containing items present in this list but not in the other.
-        """
-        self.ensure_sorted()
-        other.ensure_sorted()
-        cdef list new_items = []
-        cdef int i = 0
-        cdef int j = 0
-        cdef int n = len(self.items)
-        cdef int m = len(other.items)
-        cdef object item1, item2, key1, key2
-        while i < n and j < m:
-            item1 = self.items[i]
-            item2 = other.items[j]
-            key1 = item1 if self._key is None else self._key(item1)
-            key2 = item2 if other._key is None else other._key(item2)
+    while j < m:
+        new_items.push_back(other_items[j])
+        j += 1
 
-            if key1 == key2:
-                i += 1
-                j += 1
-            elif key1 < key2:
-                new_items.append(item1)
-                i += 1
-            else:
-                j += 1
+    self_items.swap(new_items)
 
-        while i < n:
-            new_items.append(self.items[i])
+cdef void difference(vector[Posting]& self_items, vector[Posting]& other_items) noexcept nogil:
+
+    cdef vector[Posting] new_items = vector[Posting]()
+    cdef uint32_t num_new_items = self_items.size()
+    new_items.reserve(num_new_items)
+    cdef int i = 0
+    cdef int j = 0
+    cdef int n = self_items.size()
+    cdef int m = other_items.size()
+    cdef Posting posting1, posting2
+
+    while i < n and j < m:
+        posting1 = self_items[i]
+        posting2 = other_items[j]
+
+        if posting1.doc_id == posting2.doc_id:
+            # skip both; 
             i += 1
-                
-        self.items = new_items
-        return self
+            j += 1
+        elif posting1.doc_id < posting2.doc_id:
+            # keep posting1
+            new_items.push_back(posting1)
+            i += 1
+        else:
+            # advance other;
+            j += 1
 
+    while i < n:
+        new_items.push_back(self_items[i])
+        i += 1
 
-    cpdef clone(self):
-        """
-        Creates a shallow copy of the PostingList.
+    self_items.swap(new_items)
 
-        Returns:
-            PostingList: A new PostingList instance with the same items and key function.
-        """
-        self.ensure_sorted()
-        cdef PostingList new_list = PostingList(self._key)
-        new_list.items = self.items.copy()
-        new_list._sorted = self._sorted
-        return new_list
-
-    @classmethod
-    def from_list(cls, list items, object key=None, sorted=False):
-        """
-        Creates a PostingList from a given list of items.
-        Arguments:
-            items (list): A list of items to initialize the PostingList with.
-            key (callable, optional): A function to extract a comparison key from each item. Defaults to None.
-        Returns:
-            PostingList: A new PostingList instance containing the provided items.
-        """
-        return posting_list_from_list(items, key, sorted)
-
-    def __len__(self):
-        self.ensure_sorted()
-        return len(self.items)
-
-    def __iter__(self):
-        self.ensure_sorted()
-        return iter(self.items)
-
-    def __repr__(self) -> str:
-        self.ensure_sorted()
-        return f"PostingList({self.items})"
-    
-    def __getitem__(self, int index):
-        self.ensure_sorted()
-        return self.items[index]

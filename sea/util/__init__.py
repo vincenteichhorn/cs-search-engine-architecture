@@ -1,1 +1,0 @@
-import pyximport; pyximport.install(build_dir="build")
