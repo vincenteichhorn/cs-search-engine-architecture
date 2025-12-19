@@ -5,9 +5,9 @@ from sea.corpus import Corpus, py_document_processor
 from sea.engine import Engine
 import shutil
 
-INDEX_PATH = "./data/indices_new/all"
+INDEX_PATH = "./data/indices/100k"
 DATASET = "./data/msmarco-docs.tsv"  # "./data/testing_merge.tsv"
-MAX_DOCUMENTS = 3_213_835  # 3_213_835
+MAX_DOCUMENTS = 100_000  # 3_213_835
 PARTITION_SIZE = 20_000
 
 
@@ -31,7 +31,10 @@ def index():
 
 def serve():
 
+    start = time.time()
     engine = Engine(INDEX_PATH)
+    end = time.time()
+    print(f"Loaded index in {(end - start) * 1000:.4f} milliseconds.")
 
     while True:
         query = input("Search: ")

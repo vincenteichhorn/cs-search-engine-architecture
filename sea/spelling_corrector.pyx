@@ -6,6 +6,8 @@ from libcpp.string cimport string as cstring
 from cython.operator cimport preincrement, dereference
 from libc.stdlib cimport malloc, free
 from libc.string cimport memcpy
+from libcpp.utility cimport pair
+
 
 cdef class SpellingCorrector:
 
@@ -92,9 +94,11 @@ cdef class SpellingCorrector:
             return 0.0
         return intersection / union_count
 
-    cdef char* get_top_correction(self, vector[uint64_t] tokens, float min_similarity) noexcept nogil:
+    cdef pair[CharPtr, uint32_t] get_top_correction(self, vector[uint64_t] tokens, float min_similarity) noexcept nogil:
         if tokens.size() == 0:
-            return NULL
+            return pair[CharPtr, uint32_t](NULL, 0)
+        
+        cdef uint32_t num_corrected = 0
         
         cdef uint64_t i, j
         cdef cstring token, cand, best_cand
@@ -115,6 +119,7 @@ cdef class SpellingCorrector:
                     best_cand = cand
             if best_similarity > 0.0:
                 corrections.push_back(best_cand)
+                num_corrected += 1
             else:
                 corrections.push_back(token)
 
@@ -131,4 +136,4 @@ cdef class SpellingCorrector:
                 pos += 1
             else:
                 result[pos] = '\0'
-        return result
+        return pair[CharPtr, uint32_t](result, num_corrected)

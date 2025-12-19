@@ -35,6 +35,7 @@ cdef class Corpus:
 
     cpdef object py_get(self, uint64_t idx, object processor)
     cdef Document get_document(self, uint64_t idx, bint lowercase) noexcept nogil
+    cdef TokenizedDocument get_tokenized_document(self, uint64_t idx, Tokenizer tokenizer) noexcept nogil
     
     cdef pair[BytePtr, uint64_t] _next_line(self) noexcept nogil
     cpdef object py_next(self, object processor)

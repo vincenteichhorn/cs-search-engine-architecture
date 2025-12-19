@@ -2,6 +2,7 @@ from libcpp.vector cimport vector
 from sea.document cimport Posting
 from libc.stdint cimport uint32_t
 from libcpp cimport bool as cbool
+from libc.stdlib cimport abs as cabs
 
 cdef Posting merge_postings(Posting posting1, Posting posting2) noexcept nogil:
     assert posting1.doc_id == posting2.doc_id
@@ -14,16 +15,20 @@ cdef Posting merge_postings(Posting posting1, Posting posting2) noexcept nogil:
     merged_posting.char_positions = posting2.char_positions
     return merged_posting
 
-cdef cbool phrase_constraint(Posting posting1, Posting posting2, uint32_t dist) noexcept nogil:
+cdef cbool phrase_constraint(Posting posting1, Posting posting2, uint32_t k) noexcept nogil:
     cdef uint32_t i = 0
     cdef uint32_t j = 0
     cdef uint32_t n = posting1.char_positions.size()
     cdef uint32_t m = posting2.char_positions.size()
+    cdef uint32_t abs_dist
 
     while i < n and j < m:
-        if posting1.char_positions[i] + dist == posting2.char_positions[j]:
+        abs_dist = posting1.char_positions[i] - posting2.char_positions[j]
+        if abs_dist < 0:
+            abs_dist = -abs_dist
+        if abs_dist <= k:
             return True
-        elif posting1.char_positions[i] + dist < posting2.char_positions[j]:
+        elif posting1.char_positions[i] + k < posting2.char_positions[j]:
             i += 1
         else:
             j += 1

@@ -18,6 +18,7 @@ MODULES = [
     "query",
     "spelling_corrector",
     "engine",
+    "feature_mapping",
 ]
 
 ret = os.system(SETUP_COMMAND)

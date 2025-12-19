@@ -249,6 +249,10 @@ cdef class Corpus:
     cdef Document get_document(self, uint64_t idx, bint lowercase) noexcept nogil:
         cdef EntryInfo slice = self.disk_array.get(idx)
         return document_processor(idx, slice.data, 0, slice.length, lowercase)
+    
+    cdef TokenizedDocument get_tokenized_document(self, uint64_t idx, Tokenizer tokenizer) noexcept nogil:
+        cdef EntryInfo slice = self.disk_array.get(idx)
+        return tokenized_document_processor(idx, slice.data, 0, slice.length, tokenizer)
 
     cpdef void flush(self):
         self._flush()

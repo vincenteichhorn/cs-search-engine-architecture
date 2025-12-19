@@ -4,6 +4,10 @@ from libcpp.vector cimport vector
 from libc.stdint cimport uint64_t, uint32_t
 from libcpp.string cimport string as cstring
 
+from libcpp.utility cimport pair
+
+ctypedef char* CharPtr
+
 cdef class SpellingCorrector:
 
     cdef Tokenizer tokenizer
@@ -16,4 +20,4 @@ cdef class SpellingCorrector:
     cdef vector[uint64_t] _get_bigram_hashes(self, cstring token) noexcept nogil
     cdef vector[uint64_t] get_candidates_tokens(self, cstring token) noexcept nogil
     cdef float _jaccard_similarity(self, vector[uint64_t] a, vector[uint64_t] b) noexcept nogil
-    cdef char* get_top_correction(self, vector[uint64_t] tokens, float min_similarity) noexcept nogil
+    cdef pair[CharPtr, uint32_t] get_top_correction(self, vector[uint64_t] tokens, float min_similarity) noexcept nogil

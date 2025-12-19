@@ -109,12 +109,12 @@ cdef vector[Posting] deserialize_postings(const uint8_t* data, uint32_t length) 
     cdef uint32_t num_positions
     cdef uint32_t pos
     cdef uint32_t cur = 0
-    cdef uint64_t last_doc_id = 0
+    # cdef uint64_t last_doc_id = 0
 
     while cur < length:
         memcpy(&posting.doc_id, data + cur, sizeof(uint32_t))
-        posting.doc_id += last_doc_id
-        last_doc_id = posting.doc_id
+        # posting.doc_id += last_doc_id
+        # last_doc_id = posting.doc_id
 
         cur += sizeof(uint32_t)
         memcpy(&posting.score, data + cur, sizeof(float))

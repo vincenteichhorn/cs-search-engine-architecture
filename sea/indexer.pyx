@@ -15,6 +15,7 @@ from libcpp.utility cimport pair
 from libcpp.algorithm cimport sort
 from sea.util.memory cimport get_memory_usage
 from libc.math cimport log  
+import json
 
 cdef str PARTITION_PREFIX = "partition_"
 cdef str TIER_PREFIX = "tier_"
@@ -22,8 +23,8 @@ cdef list BM25_FIELD_BOOSTS = [1.0, 0.5]
 cdef list BM25_BS = [0.75, 0.75]
 cdef float BM25_K = 1.5
 
-cdef int NUM_TIERS = 4
-cdef list TIER_THRESHOLDS = [30.0, 20.0, 1.0, 0.0]
+cdef int NUM_TIERS = 6
+cdef list TIER_THRESHOLDS = [25.0, 20.0, 15.0, 10.0, 5.0, 0.0]
 
 ctypedef Posting* PostingPtr
 
@@ -117,9 +118,37 @@ cdef class Indexer:
         self.tier_thresholds = vector[float]()
         for threshold in TIER_THRESHOLDS:
             self.tier_thresholds.push_back(threshold)
+
+    cdef void _save_metadata(self):
+        cdef str metadata_path = os.path.join(self.save_path, "meta.json")
+        cdef dict metadata = {}
+        metadata["num_documents"] = self.num_documents
+        metadata["num_postings"] = self.num_postings
+        metadata["num_fields"] = self.num_fields
+        metadata["bm25_k"] = self.bm25_k
+        metadata["bm25_field_boosts"] = [self.bm25_field_boosts[i] for i in range(self.bm25_field_boosts.size())]
+        metadata["bm25_bs"] = [self.bm25_bs[i] for i in range(self.bm25_bs.size())]
+        metadata["num_tiers"] = self.num_tiers
+        metadata["tier_thresholds"] = [self.tier_thresholds[i] for i in range(self.tier_thresholds.size())]
+        metadata["avg_field_lengths"] = {}
+        cdef uint32_t i
+        for i in range(self.num_fields):
+            metadata["avg_field_lengths"][str(i)] = self.summed_field_lengths[i] / self.num_documents
+        metadata["term_document_frequencies"] = {}
+        cdef unordered_map[uint32_t, uint32_t].iterator it = self.document_frequencies.begin()
+        cdef str token
+        while it != self.document_frequencies.end():
+            token = self.tokenizer.py_get(dereference(it).first)
+            metadata["term_document_frequencies"][token] = dereference(it).second
+            preincrement(it)
+        with open(metadata_path, "w") as f:
+            json.dump(metadata, f, indent=4)
         
-    cpdef void build(self,):
+    cpdef void build(self):
         self._build()
+        self._finalize()
+        self._save_metadata()
+
 
     cdef void _build(self) noexcept nogil:
 
@@ -182,9 +211,6 @@ cdef class Indexer:
         #     print(f"Avg. Docs/sec: {i / total_time:.2f}")
         #     print(f"Estimated indexing time for 3M documents: {(total_time/i*3_000_000/60) if i>0 else 0:.2f} minutes")
         
-        with gil:
-            self._finalize()
-
         
     cdef void _flush(self) noexcept nogil:
 
@@ -225,10 +251,10 @@ cdef class Indexer:
 
             sort(posting_ptrs.begin(), posting_ptrs.end(), compare_postings_ptr)
 
-            last_doc_id = 0
-            for j in range(posting_ptrs.size()):
-                posting_ptrs[j].doc_id -= last_doc_id
-                last_doc_id += posting_ptrs[j].doc_id
+            # last_doc_id = 0
+            # for j in range(posting_ptrs.size()):
+            #     posting_ptrs[j].doc_id -= last_doc_id
+            #     last_doc_id += posting_ptrs[j].doc_id
             
             serialized_postings = serialize_postings(&posting_ptrs)
             buffer = serialized_postings.first

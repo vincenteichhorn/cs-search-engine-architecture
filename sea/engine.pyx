@@ -202,14 +202,16 @@ cdef class Engine:
         cdef bytes query_bytes = query.encode("utf-8")
         cdef const char* query_c = query_bytes
         cdef TokenizedField tokenized_query = self.tokenizer.tokenize(query_c, len(query_bytes), True)
-        cdef const char* query_correction = self.spelling_corrector.get_top_correction(tokenized_query.tokens, min_similarity=0.75)
-        print("Query Correction:", str(query_correction, "utf-8"))
+
+        cdef pair[CharPtr, uint32_t] query_correction = self.spelling_corrector.get_top_correction(tokenized_query.tokens, min_similarity=0.75)
+        if query_correction.second > 0:
+            print("Did you mean?", str(query_correction.first, "utf-8"))
 
         cdef QueryNode* query_tree = self.query_parser.parse(tokenized_query.tokens)
         # print("Query Tree: ")
         # print_query_tree(query_tree, 0)
 
-        cdef pair[vector[Posting], bint] result_pair = self._full_boolean_search(query_tree, tier=0)
+        cdef pair[vector[Posting], bint] result_pair = self._full_boolean_search(query_tree, tier=4)
 
         cdef list results = self._retrieve_documents(result_pair.first, top_k)
 

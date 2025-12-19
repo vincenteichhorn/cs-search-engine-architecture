@@ -44,3 +44,17 @@ To run the main application, use:
 - fix phrase "k"/distance for chars in phrases, dynamix to word lengths of query words/the phrase
 - fix tiered serving
 - fix bm25 score thresholds
+
+## Learning To Rank
+
+### Feature Selection
+
+1. BM25 Score Body
+2. BM25 Score Title
+3. TF-IDF Cosine Similarity (Query and Title)
+4. Document Length Body
+5. Document Length Title
+6. First Occurrence Body / Normalizes by Body Length
+7. First Occurrence Title / Normalizes by Title Length
+8. In Title Indicator (1 if present, 0 otherwise)
+9. Bigram Coverage Body
