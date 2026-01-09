@@ -39,7 +39,7 @@ cdef class Engine:
     cdef QueryParser query_parser
     cdef SpellingCorrector spelling_corrector
 
-    cdef unordered_map[uint64_t, uint32_t] global_document_frequencies
+    cdef unordered_map[uint64_t, uint64_t] global_document_frequencies
 
     cdef dict tier_disk_arrays
     cdef uint64_t and_operator
@@ -67,7 +67,7 @@ cdef class Engine:
                     continue
                 self.tier_disk_arrays[tier_id] = DiskArray(os.path.join(self.save_path, path))
         
-        self.global_document_frequencies = unordered_map[uint64_t, uint32_t]()
+        self.global_document_frequencies = unordered_map[uint64_t, uint64_t]()
         cdef DiskArrayIterator it = self.tier_disk_arrays[0].iterator()
         cdef EntryInfo entry
         cdef uint64_t token_id = 0
@@ -149,7 +149,7 @@ cdef class Engine:
         snippet[end_pos - start_pos] = '\0'
         return pair[CharPtr, uint32_t](snippet, end_pos - start_pos)
     
-    cdef vector[TokenizedDocument] _retrieve_tokenized_documents(self, vector[Posting] postings, uint32_t top_k=10) noexcept nogil:
+    cdef vector[TokenizedDocument] _retrieve_tokenized_documents(self, vector[Posting] postings, uint32_t top_k) noexcept nogil:
 
         cdef vector[TokenizedDocument] tokenized_documents = vector[TokenizedDocument]()
         cdef TokenizedDocument doc
@@ -161,21 +161,23 @@ cdef class Engine:
                 break
         return tokenized_documents
 
-    cdef vector[Document] _retrieve_documents_with_snippets(self, vector[TokenizedDocument] tokenized_documents, vector[float] scores) noexcept nogil:
+    cdef vector[Document] _retrieve_documents_with_snippets(self, vector[Posting] postings, uint32_t top_k) noexcept nogil:
 
         cdef vector[Document] documents = vector[Document]()
         cdef Document doc
         cdef pair[CharPtr, uint32_t] snippet_pair
         cdef size_t i
 
-        for i in range(tokenized_documents.size()):
-            doc = self.corpus.get_document(tokenized_documents[i].id, lowercase=False)
-            doc.score = scores[i]
+        for i in range(postings.size()):
+            doc = self.corpus.get_document(postings[i].doc_id, lowercase=False)
+            doc.score = postings[i].score
             with gil:
-                snippet_pair = self._get_snippet(doc, tokenized_documents[i].postings[0])
+                snippet_pair = self._get_snippet(doc, postings[i])
             doc.snippet = snippet_pair.first
             doc.snippet_length = snippet_pair.second
             documents.push_back(doc)
+            if documents.size() >= top_k:
+                break
         return documents
     
     cdef pair[vector[Posting], bint] _full_boolean_search(self, QueryNode* node, uint32_t tier):
@@ -243,10 +245,12 @@ cdef class Engine:
             free_posting(&self.free_me_pls[i], True)
         self.free_me_pls.clear()
 
-    cdef vector[TokenizedDocument] _rank_documents(self, vector[uint64_t] query_tokens, vector[TokenizedDocument] document_candidates) noexcept nogil:
-        # cdef vector[TokenizedDocument] tokenized_documents = TODO
-        # cdef float[:, :] feature_matrix = get_features(query_tokens, tokenized_documents, self.global_document_frequencies, NUM_TOTAL_DOCS, self.average_field_lengths, self.bm25_k, self.bm25_bs)
-        return document_candidates
+    cdef vector[TokenizedDocument] _rank_documents(self, vector[uint64_t] query_tokens, vector[TokenizedDocument] tokenized_documents) noexcept nogil:
+        cdef float[:, :] feature_matrix
+        with gil:
+            feature_matrix = get_features(query_tokens, tokenized_documents, self.global_document_frequencies, NUM_TOTAL_DOCS, self.average_field_lengths, self.bm25_k, self.bm25_bs)
+            print(feature_matrix)
+        return tokenized_documents
         
     cpdef list search(self, str query, size_t top_k):
 
@@ -262,17 +266,15 @@ cdef class Engine:
         # print("Query Tree: ")
         # print_query_tree(query_tree, 0)
 
-        cdef pair[vector[Posting], bint] result_pair = self._full_boolean_search(query_tree, tier=4)
+        cdef pair[vector[Posting], bint] result_pair = self._full_boolean_search(query_tree, tier=2)
 
         sort(result_pair.first.begin(), result_pair.first.end(), compare_postings_scores)
-        cdef vector[float] scores = vector[float](top_k)
-        for i in range(top_k):
-            scores[i] = result_pair.first[i].score
 
-        cdef vector[TokenizedDocument] results = self._retrieve_tokenized_documents(result_pair.first, top_k)
-        cdef vector[TokenizedDocument] ranked_results = self._rank_documents(tokenized_query.tokens, results)
-        cdef vector[Document] documents = self._retrieve_documents_with_snippets(ranked_results, scores)
-        cdef list result_list = [doc_to_dict(documents[i]) for i in range(ranked_results.size())]
+        cdef vector[TokenizedDocument] tokenized_documents = self._retrieve_tokenized_documents(result_pair.first, 25)
+        cdef vector[TokenizedDocument] ranked_results = self._rank_documents(tokenized_query.tokens, tokenized_documents)
+
+        cdef vector[Document] documents = self._retrieve_documents_with_snippets(result_pair.first, top_k)
+        cdef list result_list = [doc_to_dict(documents[i]) for i in range(documents.size())]
         self.free_all_postings()
 
         return result_list
