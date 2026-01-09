@@ -12,4 +12,15 @@ class ListNet(nn.Module):
 
     def forward(self, X):
         # X has shape (batch_size, num_docs, num_features)
-        return self.net(X).squeeze(-1)  # shape (batch_size, num_docs)
+        scores = self.net(X).squeeze(-1)  # shape (batch_size, num_docs)
+        return scores
+
+    def loss(self, predictions, ranks):
+        # Convert ranks to relevance
+        max_rank = ranks.max(dim=1, keepdim=True).values
+        relevance = max_rank - ranks + 1  # higher = better
+
+        log_pred_probs = F.log_softmax(predictions, dim=1)
+        target_probs = F.softmax(relevance, dim=1)
+
+        return -(target_probs * log_pred_probs).sum(dim=1).mean()

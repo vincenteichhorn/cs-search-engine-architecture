@@ -5,3 +5,5 @@ sea/__pycache__/
 *.pyc
 .env
 vendor/
+models/
+wandb/

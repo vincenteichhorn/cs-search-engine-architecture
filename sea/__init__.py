@@ -17,8 +17,8 @@ MODULES = [
     "indexer",
     "query",
     "spelling_corrector",
+    "learning_to_rank.feature_mapping",
     "engine",
-    "feature_mapping",
 ]
 
 ret = os.system(SETUP_COMMAND)

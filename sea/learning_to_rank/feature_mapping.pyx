@@ -1,7 +1,7 @@
 # cython: boundscheck=False, wraparound=False, cdivision=True
 from libcpp.vector cimport vector
 from libc.stdint cimport uint64_t, uint32_t
-from sea.document cimport Document, TokenizedDocument
+from sea.document cimport Document, TokenizedDocument, free_posting
 from sea.corpus cimport Corpus, py_tokenized_document_processor
 from sea.tokenizer cimport Tokenizer, TokenizedField
 import numpy as np
@@ -9,6 +9,7 @@ from tqdm import tqdm
 from libcpp.unordered_map cimport unordered_map
 from libcpp.unordered_set cimport unordered_set
 from libc.math cimport log  
+from libc.stdlib cimport free
 import pandas as pd
 
 
@@ -25,7 +26,7 @@ cpdef build_dataset(
 
     print("Starting dataset build...")
 
-    cdef Corpus corpus = Corpus(index_path, "", mmap=True)
+    cdef Corpus corpus = Corpus(index_path, "", mmap=False)
     print("Corpus loaded.")
     cdef Tokenizer tokenizer = Tokenizer(index_path, mmap=False)
     print("Tokenizer loaded.")
@@ -59,7 +60,7 @@ cpdef build_dataset(
     cdef uint32_t i, j, num_docs_local, num_features_local
 
     with open(dataset_path, "w", encoding="utf-8") as f:
-        f.write("bm25_title,bm25_body,title_length,body_length,query_in_title,f5,f6,f7,f8,query_id,doc_id\n")  # header
+        f.write("bm25_title,bm25_body,title_length,body_length,query_in_title,query_id,our_id,rank\n")  # header
         for query_id, group in tqdm(
             df.groupby("query_id"),
             desc="Building dataset",
@@ -77,12 +78,18 @@ cpdef build_dataset(
             # write features to file
             num_docs_local = feature_matrix.shape[0]
             num_features_local = feature_matrix.shape[1]
+            ranks = group['rank'].tolist()
             for i in range(num_docs_local):
                 for j in range(num_features_local):
                     f.write(f"{feature_matrix[i, j]}")
                     if j < num_features_local - 1:
                         f.write(",")
-                f.write(f",{query_id},{doc_ids[i]}\n")
+                f.write(f",{query_id},{doc_ids[i]},{ranks[i]}\n")
+            
+            for doc in documents:
+                for i in range(doc.postings.size()):
+                    free_posting(&doc.postings[i], False)
+                # free(&doc.field_lengths)
             
 
 cdef vector[TokenizedDocument] get_documents(list doc_ids, Corpus corpus, Tokenizer tokenizer):
@@ -98,7 +105,7 @@ cdef vector[TokenizedDocument] get_documents(list doc_ids, Corpus corpus, Tokeni
 cdef get_features(vector[uint64_t] query_tokens, vector[TokenizedDocument] documents, unordered_map[uint64_t, uint64_t]& doc_freqs, uint64_t num_total_docs, vector[float]& average_field_lengths, float bm25_k, vector[float]& bm25_bs):
 
     # return a dummy zero matrix for now
-    cdef int num_features = 9
+    cdef int num_features = 5
     cdef uint32_t num_docs = documents.size()
     cdef float[:, :] features = np.zeros((num_docs, num_features), dtype=np.float32)
     cdef uint64_t i, j, k

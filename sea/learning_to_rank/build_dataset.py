@@ -3,15 +3,15 @@ import pandas as pd
 from tqdm import tqdm
 from sea.corpus import Corpus, py_string_processor
 from sea.tokenizer import Tokenizer
-from sea.feature_mapping import build_dataset
+from sea.learning_to_rank.feature_mapping import build_dataset
 
 INDEX_PATH = "./data/indices/all"
 MAPPING_PATH = "./data/id_mapping.csv"
-DATASET_PATH = "./data/dataset.csv"
+DATASET_PATH = "./data/dataset_20.csv"
 QUERIES_PATH = "./data/msmarco-doctrain-queries.tsv"
 TOP100_PATH = "./data/msmarco-doctrain-top100.tsv"
 QREL_PATH = "./data/msmarco-doctrain-qrels.tsv"
-TOP_N = 10
+TOP_N = 20
 
 
 def is_numeric(s):

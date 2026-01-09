@@ -1,6 +1,6 @@
 from sea.corpus cimport Corpus, doc_to_dict
 from sea.tokenizer cimport Tokenizer, TokenizedField
-from sea.document cimport Document, Posting, deserialize_postings, free_posting
+from sea.document cimport Document, Posting, deserialize_postings, free_posting, TokenizedDocument
 from sea.posting_list cimport intersection, union, difference
 from sea.query cimport QueryParser, QueryNode, print_query_tree
 from sea.util.disk_array cimport DiskArray, EntryInfo, DiskArrayIterator
@@ -11,12 +11,25 @@ from libc.stdlib cimport malloc
 from libcpp.utility cimport pair
 from sea.spelling_corrector cimport SpellingCorrector
 from libcpp.unordered_map cimport unordered_map
+import json
+from sea.learning_to_rank.model import ListNet
+import torch
+from libcpp.algorithm cimport sort
+from sea.learning_to_rank.feature_mapping cimport get_features
 
 cdef str TIER_PREFIX = "tier_"
 cdef size_t SNIPPET_RADIUS = 150
 cdef uint32_t SPELLING_FREQUENCY_THRESHOLD = 100
+cdef uint32_t NUM_TOTAL_DOCS = 3_213_835
+cdef list BM25_FIELD_BOOSTS = [1.0, 0.5]
+cdef list BM25_BS = [0.75, 0.75]
+cdef float BM25_K = 1.5
+cdef list AVG_FIELD_LENGTHS = [4.358767951683892, 783.4649271042229]
 
 ctypedef char* CharPtr
+
+cdef float compare_postings_scores(Posting a, Posting b) noexcept nogil:
+    return a.score > b.score
 
 cdef class Engine:
 
@@ -33,6 +46,11 @@ cdef class Engine:
     cdef uint64_t or_operator
     cdef uint64_t not_operator
     cdef vector[Posting] free_me_pls
+
+    cdef object model
+    cdef vector[float] average_field_lengths
+    cdef float bm25_k
+    cdef vector[float] bm25_bs
 
     def __cinit__(self, save_path):
 
@@ -72,6 +90,22 @@ cdef class Engine:
         )
         self.spelling_corrector = SpellingCorrector(self.tokenizer, self.global_document_frequencies, exclude_threshold=SPELLING_FREQUENCY_THRESHOLD)
         self.free_me_pls = vector[Posting]()
+
+        self.average_field_lengths = vector[float]()
+        for avg_len in AVG_FIELD_LENGTHS:
+            self.average_field_lengths.push_back(avg_len)
+        self.bm25_k = BM25_K
+        self.bm25_bs = vector[float]()
+        for b in BM25_BS:
+            self.bm25_bs.push_back(b)
+
+        cdef dict config
+        with open("./models/config.json", "r") as f:
+            config = json.load(f)
+        self.model = ListNet(**config)
+        self.model.load_state_dict(torch.load("./models/listnet_latest.pth"))
+        self.model.eval()
+
 
     cdef vector[Posting] _get_postings(self, uint64_t token_id, uint32_t tier):
         
@@ -115,21 +149,33 @@ cdef class Engine:
         snippet[end_pos - start_pos] = '\0'
         return pair[CharPtr, uint32_t](snippet, end_pos - start_pos)
     
-    cdef list _retrieve_documents(self, vector[Posting] postings, uint32_t top_k=10):
+    cdef vector[TokenizedDocument] _retrieve_tokenized_documents(self, vector[Posting] postings, uint32_t top_k=10) noexcept nogil:
 
-        cdef list documents = []
-        cdef Document doc
-
+        cdef vector[TokenizedDocument] tokenized_documents = vector[TokenizedDocument]()
+        cdef TokenizedDocument doc
         for i in range(postings.size()):
-            doc = self.corpus.get_document(postings[i].doc_id, lowercase=False)
-            doc.score = postings[i].score
-            snippet_pair = self._get_snippet(doc, postings[i])
+            with gil:
+                doc = self.corpus.get_tokenized_document(postings[i].doc_id, tokenizer=self.tokenizer)
+            tokenized_documents.push_back(doc)
+            if tokenized_documents.size() >= top_k:
+                break
+        return tokenized_documents
+
+    cdef vector[Document] _retrieve_documents_with_snippets(self, vector[TokenizedDocument] tokenized_documents, vector[float] scores) noexcept nogil:
+
+        cdef vector[Document] documents = vector[Document]()
+        cdef Document doc
+        cdef pair[CharPtr, uint32_t] snippet_pair
+        cdef size_t i
+
+        for i in range(tokenized_documents.size()):
+            doc = self.corpus.get_document(tokenized_documents[i].id, lowercase=False)
+            doc.score = scores[i]
+            with gil:
+                snippet_pair = self._get_snippet(doc, tokenized_documents[i].postings[0])
             doc.snippet = snippet_pair.first
             doc.snippet_length = snippet_pair.second
-            documents.append(doc_to_dict(doc))
-            if len(documents) >= top_k:
-                break
-        documents = sorted(documents, key=lambda x: x['score'], reverse=True)
+            documents.push_back(doc)
         return documents
     
     cdef pair[vector[Posting], bint] _full_boolean_search(self, QueryNode* node, uint32_t tier):
@@ -196,6 +242,11 @@ cdef class Engine:
         for i in range(self.free_me_pls.size()):
             free_posting(&self.free_me_pls[i], True)
         self.free_me_pls.clear()
+
+    cdef vector[TokenizedDocument] _rank_documents(self, vector[uint64_t] query_tokens, vector[TokenizedDocument] document_candidates) noexcept nogil:
+        # cdef vector[TokenizedDocument] tokenized_documents = TODO
+        # cdef float[:, :] feature_matrix = get_features(query_tokens, tokenized_documents, self.global_document_frequencies, NUM_TOTAL_DOCS, self.average_field_lengths, self.bm25_k, self.bm25_bs)
+        return document_candidates
         
     cpdef list search(self, str query, size_t top_k):
 
@@ -213,8 +264,15 @@ cdef class Engine:
 
         cdef pair[vector[Posting], bint] result_pair = self._full_boolean_search(query_tree, tier=4)
 
-        cdef list results = self._retrieve_documents(result_pair.first, top_k)
+        sort(result_pair.first.begin(), result_pair.first.end(), compare_postings_scores)
+        cdef vector[float] scores = vector[float](top_k)
+        for i in range(top_k):
+            scores[i] = result_pair.first[i].score
 
+        cdef vector[TokenizedDocument] results = self._retrieve_tokenized_documents(result_pair.first, top_k)
+        cdef vector[TokenizedDocument] ranked_results = self._rank_documents(tokenized_query.tokens, results)
+        cdef vector[Document] documents = self._retrieve_documents_with_snippets(ranked_results, scores)
+        cdef list result_list = [doc_to_dict(documents[i]) for i in range(ranked_results.size())]
         self.free_all_postings()
 
-        return results
+        return result_list
