@@ -101,6 +101,23 @@ cdef pair[BytePtr, uint32_t] serialize_postings(vector[Posting*]* postings) noex
 
     return pair[BytePtr, uint32_t](buffer, total_size)
 
+cdef uint32_t get_posting_list_length(const uint8_t* data, uint32_t length) noexcept nogil:
+    cdef uint32_t cur = 0
+    cdef uint32_t count = 0
+    cdef uint32_t num_fields
+    cdef uint32_t num_positions
+    while cur < length:
+        cur += sizeof(uint32_t) + sizeof(float) # doc_id + score
+        memcpy(&num_fields, data + cur, sizeof(uint32_t))
+        cur += sizeof(uint32_t)
+        cur += num_fields * sizeof(uint32_t) # field_frequencies
+        cur += num_fields * sizeof(uint32_t) # field_lengths
+        memcpy(&num_positions, data + cur, sizeof(uint32_t))
+        cur += sizeof(uint32_t)
+        cur += num_positions * sizeof(uint32_t) # char_positions
+        count += 1
+    return count
+
 cdef vector[Posting] deserialize_postings(const uint8_t* data, uint32_t length) noexcept nogil:
     cdef vector[Posting] postings = vector[Posting]()
 

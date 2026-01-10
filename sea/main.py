@@ -15,6 +15,10 @@ def bold_string(s: str) -> str:
     return f"\033[1m{s}\033[0m"
 
 
+def underline_string(s: str) -> str:
+    return f"\033[4m{s}\033[0m"
+
+
 def index():
 
     inp = input(
@@ -31,10 +35,11 @@ def index():
 
 def serve():
 
+    print("Loading...")
     start = time.time()
     engine = Engine(INDEX_PATH)
     end = time.time()
-    print(f"Loaded index in {(end - start) * 1000:.4f} milliseconds.")
+    print(f"Loaded in {(end - start) * 1000:.4f} milliseconds.")
 
     while True:
         query = input("Search: ")
@@ -45,6 +50,7 @@ def serve():
         for doc in results:
             print("-" * os.get_terminal_size().columns)
             print(
+                f"{bold_string('ID')}: {doc['id']}",
                 f"{bold_string('Title')}: {doc['title']}",
                 f"{bold_string('URL')}: {doc['url']}",
                 f"{bold_string('Score')}: {doc['score']:.4f}",

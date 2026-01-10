@@ -111,6 +111,8 @@ cdef class SpellingCorrector:
             candidate_tokens = self.get_candidates_tokens(token)
             best_similarity = 0.0
             for j in range(candidate_tokens.size()):
+                if candidate_tokens[j] == tokens[i]:
+                    continue
                 cand = self.tokenizer.get(candidate_tokens[j])
                 candidate_bigrams = self._get_bigram_hashes(cand)
                 similarity = self._jaccard_similarity(token_bigrams, candidate_bigrams)
