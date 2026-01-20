@@ -1,42 +1,48 @@
 from libcpp.vector cimport vector
-from sea.document cimport Posting
+from sea.document cimport SearchResultPosting
 from libc.stdint cimport uint32_t
 from libcpp cimport bool as cbool
 from libc.stdlib cimport abs as cabs
 
-cdef Posting merge_postings(Posting posting1, Posting posting2) noexcept nogil:
+cdef SearchResultPosting merge_postings(SearchResultPosting posting1, SearchResultPosting posting2) noexcept nogil:
     assert posting1.doc_id == posting2.doc_id
-    cdef Posting merged_posting
-    merged_posting.doc_id = posting1.doc_id
-    merged_posting.score = posting1.score + posting2.score
-    merged_posting.num_fields = posting2.num_fields
-    merged_posting.field_frequencies = posting2.field_frequencies
-    merged_posting.field_lengths = posting2.field_lengths
-    merged_posting.char_positions = posting2.char_positions
+    cdef SearchResultPosting merged_posting = posting1
+    cdef uint32_t i
+    for i in range(posting2.tokens.size()):
+        merged_posting.tokens.push_back(posting2.tokens[i])
+    for i in range(posting2.scores.size()):
+        merged_posting.scores.push_back(posting2.scores[i])
+    merged_posting.total_score += posting2.total_score
+    for i in range(posting2.field_frequencies.size()):
+        merged_posting.field_frequencies.push_back(posting2.field_frequencies[i])
+    for i in range(posting2.char_positions.size()):
+        merged_posting.char_positions.push_back(posting2.char_positions[i])
     return merged_posting
 
-cdef cbool phrase_constraint(Posting posting1, Posting posting2, uint32_t k) noexcept nogil:
+cdef cbool phrase_constraint(SearchResultPosting posting1, SearchResultPosting posting2, uint32_t k) noexcept nogil:
     cdef uint32_t i = 0
     cdef uint32_t j = 0
-    cdef uint32_t n = posting1.char_positions.size()
-    cdef uint32_t m = posting2.char_positions.size()
+    cdef uint32_t l1 = posting1.char_positions.size() - 1
+    cdef uint32_t l2 = posting2.char_positions.size() - 1
+    cdef uint32_t n = posting1.char_positions[l1].size()
+    cdef uint32_t m = posting2.char_positions[l2].size()
     cdef uint32_t abs_dist
 
     while i < n and j < m:
-        abs_dist = posting1.char_positions[i] - posting2.char_positions[j]
+        abs_dist = posting1.char_positions[l1][i] - posting2.char_positions[l2][j]
         if abs_dist < 0:
             abs_dist = -abs_dist
         if abs_dist <= k:
             return True
-        elif posting1.char_positions[i] + k < posting2.char_positions[j]:
+        elif posting1.char_positions[l1][i] + k < posting2.char_positions[l2][j]:
             i += 1
         else:
             j += 1
     return False
 
-cdef void intersection(vector[Posting]& self_items, vector[Posting]& other_items, cbool phrase) noexcept nogil:
+cdef void intersection(vector[SearchResultPosting]& self_items, vector[SearchResultPosting]& other_items, cbool phrase) noexcept nogil:
 
-    cdef vector[Posting] new_items = vector[Posting]()
+    cdef vector[SearchResultPosting] new_items = vector[SearchResultPosting]()
     cdef uint32_t num_new_items = self_items.size()
     if other_items.size() < num_new_items:
         num_new_items = other_items.size()
@@ -46,7 +52,7 @@ cdef void intersection(vector[Posting]& self_items, vector[Posting]& other_items
     cdef int j = 0
     cdef int n = self_items.size()
     cdef int m = other_items.size()
-    cdef Posting posting1, posting2
+    cdef SearchResultPosting posting1, posting2
 
     while i < n and j < m:
         posting1 = self_items[i]
@@ -68,16 +74,16 @@ cdef void intersection(vector[Posting]& self_items, vector[Posting]& other_items
             j += 1
     self_items.swap(new_items)
 
-cdef void union(vector[Posting]& self_items, vector[Posting]& other_items) noexcept nogil:
+cdef void union(vector[SearchResultPosting]& self_items, vector[SearchResultPosting]& other_items) noexcept nogil:
 
-    cdef vector[Posting] new_items = vector[Posting]()
+    cdef vector[SearchResultPosting] new_items = vector[SearchResultPosting]()
     cdef uint32_t num_new_items = self_items.size() + other_items.size()
     new_items.reserve(num_new_items)
     cdef int i = 0
     cdef int j = 0
     cdef int n = self_items.size()
     cdef int m = other_items.size()
-    cdef Posting posting1, posting2
+    cdef SearchResultPosting posting1, posting2
 
     while i < n and j < m:
         posting1 = self_items[i]
@@ -107,16 +113,16 @@ cdef void union(vector[Posting]& self_items, vector[Posting]& other_items) noexc
 
     self_items.swap(new_items)
 
-cdef void difference(vector[Posting]& self_items, vector[Posting]& other_items) noexcept nogil:
+cdef void difference(vector[SearchResultPosting]& self_items, vector[SearchResultPosting]& other_items) noexcept nogil:
 
-    cdef vector[Posting] new_items = vector[Posting]()
+    cdef vector[SearchResultPosting] new_items = vector[SearchResultPosting]()
     cdef uint32_t num_new_items = self_items.size()
     new_items.reserve(num_new_items)
     cdef int i = 0
     cdef int j = 0
     cdef int n = self_items.size()
     cdef int m = other_items.size()
-    cdef Posting posting1, posting2
+    cdef SearchResultPosting posting1, posting2
 
     while i < n and j < m:
         posting1 = self_items[i]

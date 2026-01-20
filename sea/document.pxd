@@ -13,6 +13,8 @@ cdef void free_tokenized_document_with_postings(TokenizedDocument* tokenized_doc
 cdef pair[BytePtr, uint32_t] serialize_postings(vector[Posting*]* postings) noexcept nogil
 cdef uint32_t get_posting_list_length(const uint8_t* data, uint32_t length) noexcept nogil
 cdef vector[Posting] deserialize_postings(const uint8_t* data, uint32_t length) noexcept nogil
+cdef vector[SearchResultPosting] deserialize_search_result_postings(const uint8_t* data, uint32_t length, uint32_t token_id) noexcept nogil
+cdef vector[SearchResultPosting] create_search_result_postings(vector[Posting]& postings, uint64_t token) noexcept nogil
 cdef pair[float, size_t] update_posting_score(const uint8_t* data, size_t offset, float idf, float bm25k, vector[float]& field_boosts, vector[float]& bm25_bs, vector[float]& avg_field_lengths) noexcept nogil
 
 cdef struct Document:
@@ -35,6 +37,16 @@ cdef struct Posting:
     uint32_t* field_lengths
     vector[uint32_t] char_positions
     # vector[uint32_t] token_positions
+
+cdef struct SearchResultPosting:
+    uint32_t doc_id
+    vector[uint64_t] tokens
+    float total_score
+    vector[float] scores
+    uint32_t num_fields
+    vector[vector[uint32_t]] field_frequencies
+    vector[uint32_t] field_lengths
+    vector[vector[uint32_t]] char_positions
 
 cdef struct TokenizedDocument:
     uint64_t id

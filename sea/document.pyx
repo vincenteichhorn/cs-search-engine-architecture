@@ -161,6 +161,88 @@ cdef vector[Posting] deserialize_postings(const uint8_t* data, uint32_t length) 
 
     return postings
 
+cdef vector[SearchResultPosting] deserialize_search_result_postings(const uint8_t* data, uint32_t length, uint32_t token_id) noexcept nogil:
+    cdef vector[SearchResultPosting] postings = vector[SearchResultPosting]()
+
+    cdef uint32_t i, j
+    cdef SearchResultPosting sr_posting
+    cdef uint32_t num_positions
+    cdef uint32_t cur = 0
+
+    while cur < length:
+        memcpy(&sr_posting.doc_id, data + cur, sizeof(uint32_t))
+
+        sr_posting.tokens = vector[uint64_t]()
+        sr_posting.tokens.push_back(token_id)
+
+        cur += sizeof(uint32_t)
+        memcpy(&sr_posting.total_score, data + cur, sizeof(float))
+        sr_posting.scores = vector[float]()
+        sr_posting.scores.push_back(sr_posting.total_score)
+        cur += sizeof(float)
+
+        memcpy(&sr_posting.num_fields, data + cur, sizeof(uint32_t))
+        cur += sizeof(uint32_t)
+        sr_posting.field_frequencies = vector[vector[uint32_t]]()
+        sr_posting.field_frequencies.push_back(vector[uint32_t](sr_posting.num_fields))
+        for j in range(sr_posting.num_fields):
+            memcpy(&sr_posting.field_frequencies[0][j], data + cur, sizeof(uint32_t))
+            cur += sizeof(uint32_t)
+        
+        sr_posting.field_lengths = vector[uint32_t](sr_posting.num_fields)
+        for j in range(sr_posting.num_fields):
+            memcpy(&sr_posting.field_lengths[j], data + cur, sizeof(uint32_t))
+            cur += sizeof(uint32_t)
+
+        memcpy(&num_positions, data + cur, sizeof(uint32_t))
+        cur += sizeof(uint32_t)
+        sr_posting.char_positions = vector[vector[uint32_t]]()
+        sr_posting.char_positions.push_back(vector[uint32_t](num_positions))
+        for j in range(num_positions):
+            memcpy(&sr_posting.char_positions[0][j], data + cur, sizeof(uint32_t))
+            cur += sizeof(uint32_t)
+
+        postings.push_back(sr_posting)
+
+    return postings
+
+cdef vector[SearchResultPosting] create_search_result_postings(vector[Posting]& postings, uint64_t token) noexcept nogil:
+    cdef vector[SearchResultPosting] result_postings = vector[SearchResultPosting]()
+    cdef uint32_t i, j
+    cdef SearchResultPosting sr_posting
+    cdef Posting posting
+
+    for i in range(postings.size()):
+        posting = postings[i]
+        
+        sr_posting.doc_id = posting.doc_id
+        sr_posting.num_fields = posting.num_fields
+
+        sr_posting.tokens = vector[uint64_t]()
+        sr_posting.tokens.push_back(token)
+
+        sr_posting.scores = vector[float]()
+        sr_posting.scores.push_back(posting.score)
+        sr_posting.total_score = posting.score
+
+        sr_posting.field_frequencies = vector[vector[uint32_t]]()
+        sr_posting.field_frequencies.push_back(vector[uint32_t]())
+        for j in range(posting.num_fields):
+            sr_posting.field_frequencies[0].push_back(posting.field_frequencies[j])
+        sr_posting.field_lengths = vector[uint32_t]()
+        for j in range(posting.num_fields):
+            sr_posting.field_lengths.push_back(posting.field_lengths[j])
+        
+        sr_posting.char_positions = vector[vector[uint32_t]]()
+        sr_posting.char_positions.push_back(vector[uint32_t]())
+        for j in range(posting.char_positions.size()):
+            sr_posting.char_positions[0].push_back(posting.char_positions[j])
+        
+        free_posting(&posting, True)
+        
+        result_postings.push_back(sr_posting)
+    return result_postings
+
 cdef pair[float, size_t] update_posting_score(const uint8_t* data, size_t offset, float idf, float bm25k, vector[float]& field_boosts, vector[float]& bm25_bs, vector[float]& avg_field_lengths) noexcept nogil:
     
 

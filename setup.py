@@ -18,7 +18,6 @@ lib_stemmer_sources = [
     "vendor/libstemmer_c/runtime/utilities.c",
 ]
 lib_stemmer_sources += glob.glob("vendor/libstemmer_c/src_c/stem_UTF_8_*.c")
-print("Libstemmer sources:", lib_stemmer_sources)
 extensions = []
 extensions.append(
     Extension(

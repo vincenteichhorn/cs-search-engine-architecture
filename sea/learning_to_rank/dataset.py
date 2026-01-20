@@ -3,11 +3,11 @@ import torch
 
 
 class RankingDataset(Dataset):
-    def __init__(self, dataframe):
+    def __init__(self, dataframe, num_docs_per_query=10):
         self.dataframe = dataframe
         # drop all queries that do not have 10 documents
         counts = self.dataframe["query_id"].value_counts()
-        valid_query_ids = counts[counts == 10].index
+        valid_query_ids = counts[counts == num_docs_per_query].index
         self.dataframe = self.dataframe[
             self.dataframe["query_id"].isin(valid_query_ids)
         ].reset_index(drop=True)
@@ -16,6 +16,13 @@ class RankingDataset(Dataset):
             old_id: new_id for new_id, old_id in enumerate(self.dataframe["query_id"].unique())
         }
         self.dataframe.loc[:, "query_id"] = self.dataframe["query_id"].map(query_id_mapping)
+
+    def means_and_stds(self):
+        feature_columns = self.dataframe.drop(columns=["query_id", "our_id", "rank"]).columns
+        features = self.dataframe[feature_columns].values
+        means = list(features.mean(axis=0))
+        stds = list(features.std(axis=0))
+        return means, stds
 
     def __len__(self):
         return self.num_queries
@@ -29,12 +36,13 @@ class RankingDataset(Dataset):
         features = torch.tensor(
             sub_df.drop(columns=["query_id", "our_id", "rank"]).values, dtype=torch.float32
         )
-        relevances = torch.tensor(sub_df["rank"].values, dtype=torch.float32)
+        max_rank = sub_df["rank"].max()
+        relevances = torch.tensor(max_rank - sub_df["rank"].values + 1, dtype=torch.float32)
 
         return features, relevances
 
 
 def collate_fn(batch):
     features_batch = torch.stack([item[0] for item in batch])
-    ranks_batch = torch.stack([item[1] for item in batch])
-    return features_batch, ranks_batch
+    relevances_batch = torch.stack([item[1] for item in batch])
+    return features_batch, relevances_batch
