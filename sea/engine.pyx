@@ -1,7 +1,7 @@
 from sea.corpus cimport Corpus, doc_to_dict
 from sea.tokenizer cimport Tokenizer, TokenizedField
 from sea.document cimport Document, Posting, TokenizedDocument, SearchResultPosting, deserialize_postings, deserialize_search_result_postings, free_posting, free_tokenized_document_with_postings, free_tokenized_document, get_posting_list_length, create_search_result_postings
-from sea.posting_list cimport intersection, union, difference
+from sea.posting_list cimport intersection, intersection_phrase, union, difference
 from sea.query cimport QueryParser, QueryNode, print_query_tree
 from sea.util.disk_array cimport DiskArray, EntryInfo, DiskArrayIterator
 from libcpp.vector cimport vector
@@ -153,6 +153,7 @@ cdef class Engine:
             sr_posting.tokens = vector[uint64_t]()
             sr_posting.scores = vector[float]()
             sr_posting.total_score = 0.0
+            sr_posting.snippet_position = 0
             sr_posting.field_frequencies = vector[vector[uint32_t]]()
             sr_posting.field_lengths = vector[uint32_t]()
             sr_posting.char_positions = vector[vector[uint32_t]]()
@@ -209,7 +210,7 @@ cdef class Engine:
         cdef uint32_t min_length
         for tier in range(self.num_tiers):
             min_length = self._tier_min_posting_list_length(node, tier)
-            print(f"Tier {tier} has min posting list length {min_length}")
+            # print(f"Tier {tier} has min posting list length {min_length}")
             if min_length >= top_k:
                 return tier
         return self.num_tiers - 1
@@ -233,6 +234,8 @@ cdef class Engine:
         cdef size_t snippet_length = SNIPPET_RADIUS
         cdef uint32_t l = posting.char_positions.size() - 1
         cdef uint32_t position = posting.char_positions[l][0] - doc.title_length if posting.char_positions[l].size() > 0 else 0
+        if posting.snippet_position != 0:
+            position = posting.snippet_position - doc.title_length
         if position >= doc.body_length:
             position = doc.body_length // 2
         cdef size_t start_pos = position - snippet_length // 2 if position >= snippet_length // 2 else 0
@@ -301,7 +304,7 @@ cdef class Engine:
                 for i in range(1, node.values.size()):
                     token = node.values[i]
                     other_posting_list = self._get_postings(token, min_tier, max_tier)
-                    intersection(result, other_posting_list, True)
+                    intersection_phrase(result, other_posting_list, 10)
                 return pair[vector[SearchResultPosting], bint](result, False)
             else:
                 return pair[vector[SearchResultPosting], bint](self._get_postings(node.values[0], min_tier, max_tier), False)
@@ -316,55 +319,53 @@ cdef class Engine:
 
         if node.values[0] == self.and_operator:
             if not left_pair.second and not right_pair.second:
-                intersection(left_pair.first, right_pair.first, False)
+                intersection(left_pair.first, right_pair.first)
                 return pair[vector[SearchResultPosting], bint](left_pair.first, False)
             elif left_pair.second and not right_pair.second:
                 difference(right_pair.first, left_pair.first)
-                return pair[vector[SearchResultPosting], bint](left_pair.first, False)
+                return pair[vector[SearchResultPosting], bint](right_pair.first, False)
             elif not left_pair.second and right_pair.second:
                 difference(left_pair.first, right_pair.first)
                 return pair[vector[SearchResultPosting], bint](left_pair.first, False)
             else:
                 union(left_pair.first, right_pair.first)
-                return pair[vector[SearchResultPosting], bint](left_pair.first, False)
+                return pair[vector[SearchResultPosting], bint](left_pair.first, True)
         elif node.values[0] == self.or_operator:
             if not left_pair.second and not right_pair.second:
                 union(left_pair.first, right_pair.first)
                 return pair[vector[SearchResultPosting], bint](left_pair.first, False)
             elif left_pair.second and not right_pair.second:
                 difference(left_pair.first, right_pair.first)
-                return pair[vector[SearchResultPosting], bint](left_pair.first, False)
+                return pair[vector[SearchResultPosting], bint](left_pair.first, True)
             elif not left_pair.second and right_pair.second:
                 difference(right_pair.first, left_pair.first)
-                return pair[vector[SearchResultPosting], bint](left_pair.first, False)
+                return pair[vector[SearchResultPosting], bint](right_pair.first, True)
             else:
-                intersection(left_pair.first, right_pair.first, False)
-                return pair[vector[SearchResultPosting], bint](left_pair.first, False)
+                intersection(left_pair.first, right_pair.first)
+                return pair[vector[SearchResultPosting], bint](left_pair.first, True)
         else:
             return pair[vector[SearchResultPosting], bint](vector[SearchResultPosting](), False)
     
-    cdef vector[uint32_t] _rank_documents(self, vector[uint64_t] query_tokens, vector[SearchResultPosting]& postings, int top_k):
+    cdef vector[uint32_t] _rank_documents(self, vector[uint64_t] query_tokens, vector[SearchResultPosting]& postings, int pre_select_k):
         cdef float[:, :] feature_matrix = get_features(
             query_tokens,
             postings, 
-            top_k,
+            pre_select_k,
             self.global_document_frequencies, 
             self.num_total_docs, 
             self.average_field_lengths, 
             self.bm25_k, 
             self.bm25_bs
         )
-        cdef object feature_matrix_np = np.matrix(feature_matrix)
-        print(feature_matrix_np)
-        # cdef object input = torch.tensor([feature_matrix])
-        # cdef object output = self.model(input)[0]
-        # cdef list ranked_document_indices = list(torch.argsort(output, descending=True))
+        cdef object input = torch.tensor([feature_matrix])
+        cdef object output = self.model(input)[0]
+        cdef list ranked_document_indices = list(torch.argsort(output, descending=True))
         cdef vector[uint32_t] ranked_documents = vector[uint32_t]()
-        for i in range(postings.size()):
-            ranked_documents.push_back(i)
+        for i in range(len(ranked_document_indices)):
+            ranked_documents.push_back(ranked_document_indices[i])
         return ranked_documents
         
-    cpdef list search(self, str query, size_t top_k):
+    cpdef list search(self, str query, size_t pre_select_k, size_t top_k):
 
         cdef bytes query_bytes = query.lower().encode("utf-8")
         cdef const char* query_c = query_bytes
@@ -375,14 +376,14 @@ cdef class Engine:
             print(f"Did you mean \033[4m{str(query_correction.first, 'utf-8')}\033[0m?")
 
         cdef QueryNode* query_tree = self.query_parser.parse(tokenized_query.tokens)
-        # print("Query Tree:")
-        # print_query_tree(query_tree, 0)
+        print("Query Tree:")
+        print_query_tree(query_tree, self.tokenizer, 0)
 
-        cdef uint32_t tier = self._min_tier_index(query_tree, top_k)
+        cdef uint32_t tier = self._min_tier_index(query_tree, pre_select_k)
 
         cdef list results = []
         cdef pair[vector[SearchResultPosting], bint] results_pair = pair[vector[SearchResultPosting], bint](vector[SearchResultPosting](), False)
-        while results_pair.first.size() < top_k and tier < self.num_tiers:
+        while results_pair.first.size() < pre_select_k and tier < self.num_tiers:
             results_pair = self._full_boolean_search(query_tree, min_tier=0, max_tier=tier)
             tier += 1
 
@@ -392,7 +393,7 @@ cdef class Engine:
             return results
 
         sort(results_pair.first.begin(), results_pair.first.end(), compare_postings_scores)
-        cdef vector[uint32_t] ranking_indices = self._rank_documents(tokenized_query.tokens, results_pair.first, top_k)
+        cdef vector[uint32_t] ranking_indices = self._rank_documents(tokenized_query.tokens, results_pair.first, pre_select_k)
 
         cdef vector[Document] documents = self._retrieve_documents_with_snippets(results_pair.first, ranking_indices, top_k)
         results = [doc_to_dict(documents[i]) for i in range(min(top_k, results_pair.first.size()))]

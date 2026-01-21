@@ -5,7 +5,7 @@ import math
 
 
 class ListNet(nn.Module):
-    def __init__(self, in_features, dropout=0.1, means=None, stds=None):
+    def __init__(self, in_features, dropout=0.1, means=None, stds=None, *args, **kwargs):
         super(ListNet, self).__init__()
         self.means = torch.tensor(means, dtype=torch.float32) if means is not None else None
         self.stds = torch.tensor(stds, dtype=torch.float32) if stds is not None else None
@@ -17,9 +17,6 @@ class ListNet(nn.Module):
         assert in_features == self.stds.shape[0], "in_features must match stds length."
         self.net = nn.Sequential(
             nn.Linear(in_features, 512),
-            nn.ReLU(),
-            nn.Dropout(dropout),
-            nn.Linear(512, 512),
             nn.ReLU(),
             nn.Dropout(dropout),
             nn.Linear(512, 512),
@@ -48,11 +45,12 @@ class ListNet(nn.Module):
 
 
 class CrossEntropyRankLoss(nn.Module):
-    def __init__(self):
+    def __init__(self, temperature: float = 0.5):
         super(CrossEntropyRankLoss, self).__init__()
+        self.temperature = temperature
 
     def forward(self, predictions, relevances):
         log_pred_probs = F.log_softmax(predictions, dim=1)
-        target_probs = F.softmax(relevances, dim=1)
+        target_probs = F.softmax(relevances / self.temperature, dim=1)
 
         return -(target_probs * log_pred_probs).sum(dim=1).mean()

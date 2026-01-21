@@ -18,7 +18,7 @@ class RankingDataset(Dataset):
         self.dataframe.loc[:, "query_id"] = self.dataframe["query_id"].map(query_id_mapping)
 
     def means_and_stds(self):
-        feature_columns = self.dataframe.drop(columns=["query_id", "our_id", "rank"]).columns
+        feature_columns = self.dataframe.drop(columns=["query_id", "rank"]).columns
         features = self.dataframe[feature_columns].values
         means = list(features.mean(axis=0))
         stds = list(features.std(axis=0))
@@ -34,7 +34,7 @@ class RankingDataset(Dataset):
         # shuffle the documents for this query
         sub_df = sub_df.sample(frac=1).reset_index(drop=True)
         features = torch.tensor(
-            sub_df.drop(columns=["query_id", "our_id", "rank"]).values, dtype=torch.float32
+            sub_df.drop(columns=["query_id", "rank"]).values, dtype=torch.float32
         )
         max_rank = sub_df["rank"].max()
         relevances = torch.tensor(max_rank - sub_df["rank"].values + 1, dtype=torch.float32)

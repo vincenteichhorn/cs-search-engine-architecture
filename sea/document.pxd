@@ -44,6 +44,7 @@ cdef struct SearchResultPosting:
     float total_score
     vector[float] scores
     uint32_t num_fields
+    uint32_t snippet_position
     vector[vector[uint32_t]] field_frequencies
     vector[uint32_t] field_lengths
     vector[vector[uint32_t]] char_positions

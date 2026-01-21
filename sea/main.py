@@ -42,9 +42,10 @@ def serve():
     print(f"Loaded in {(end - start) * 1000:.4f} milliseconds.")
 
     while True:
+        print("=" * os.get_terminal_size().columns)
         query = input("Search: ")
         start = time.time()
-        results = engine.search(query, top_k=10)
+        results = engine.search(query, pre_select_k=50, top_k=10)
         end = time.time()
         print(f"Search took {(end - start) * 1000:.4f} milliseconds.")
         for doc in results:

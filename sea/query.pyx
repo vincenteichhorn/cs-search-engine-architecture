@@ -4,8 +4,9 @@ from libcpp.unordered_map cimport unordered_map
 from libcpp.unordered_set cimport unordered_set
 from sea.query cimport QueryParser, QueryNode
 from libc.stdlib cimport malloc, free
+from sea.tokenizer cimport Tokenizer
 
-cdef void print_query_tree(QueryNode* node, uint64_t depth) noexcept nogil:
+cdef void print_query_tree(QueryNode* node, Tokenizer tokenizer, uint64_t depth) noexcept nogil:
     if node == NULL:
         return
     cdef uint64_t i
@@ -18,7 +19,7 @@ cdef void print_query_tree(QueryNode* node, uint64_t depth) noexcept nogil:
                 print("[", end="")
             for i in range(node.values.size()):
                 with gil:
-                    print(f"{node.values[i]}", end="")
+                    print(tokenizer.py_get(node.values[i]), end="")
                 if i < node.values.size() - 1:
                     with gil:
                         print(", ", end="")
@@ -26,12 +27,12 @@ cdef void print_query_tree(QueryNode* node, uint64_t depth) noexcept nogil:
                 print("]")
         else:
             with gil:
-                print(f"{node.values[0]}")
+                print(f"{tokenizer.py_get(node.values[0])}")
     else:
         with gil:
-            print(f"Op: {node.values[0]}")
-        print_query_tree(node.left, depth + 1)
-        print_query_tree(node.right, depth + 1)
+            print(f"Op: {tokenizer.py_get(node.values[0])}")
+        print_query_tree(node.left, tokenizer, depth + 1)
+        print_query_tree(node.right, tokenizer, depth + 1)
 
 cdef dict query_tree_to_dict(QueryNode* node):
     cdef dict result = {}

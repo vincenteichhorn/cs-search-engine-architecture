@@ -201,6 +201,7 @@ cdef vector[SearchResultPosting] deserialize_search_result_postings(const uint8_
         for j in range(num_positions):
             memcpy(&sr_posting.char_positions[0][j], data + cur, sizeof(uint32_t))
             cur += sizeof(uint32_t)
+        sr_posting.snippet_position = 0
 
         postings.push_back(sr_posting)
 

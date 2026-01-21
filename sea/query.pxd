@@ -1,6 +1,7 @@
 from libc.stdint cimport uint32_t, uint64_t
 from libcpp.vector cimport vector
 from libcpp.unordered_map cimport unordered_map
+from sea.tokenizer cimport Tokenizer
 
 
 cdef cppclass QueryNode:
@@ -10,7 +11,7 @@ cdef cppclass QueryNode:
 
 ctypedef QueryNode* QueryNodePtr
 
-cdef void print_query_tree(QueryNode* node, uint64_t depth) noexcept nogil
+cdef void print_query_tree(QueryNode* node, Tokenizer tokenizer, uint64_t depth) noexcept nogil
 cdef dict query_tree_to_dict(QueryNode* node)
 
 cdef class QueryParser:
