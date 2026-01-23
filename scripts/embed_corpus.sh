@@ -6,7 +6,7 @@
 #SBATCH --gres=gpu:1
 #SBATCH --partition gpu-batch
 #SBATCH --cpus-per-task 8
-#SBATCH --mem 60000
+#SBATCH --mem 120000
 #SBATCH --time 24:00:00
 #SBATCH --mail-type END,FAIL
 #SBATCH --mail-user vincent.eichhorn@student.hpi.uni-potsdam.de
