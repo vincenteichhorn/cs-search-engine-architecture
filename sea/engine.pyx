@@ -39,8 +39,8 @@ cdef bint compare_postings_scores(SearchResultPosting& a, SearchResultPosting& b
 cdef class Engine:
 
     cdef str save_path
-    cdef Corpus corpus
-    cdef Tokenizer tokenizer
+    cdef public Corpus corpus
+    cdef public Tokenizer tokenizer
     cdef QueryParser query_parser
     cdef SpellingCorrector spelling_corrector
 
@@ -108,10 +108,10 @@ cdef class Engine:
             self.bm25_bs.push_back(b)
 
         cdef dict config
-        with open("./models/listnet_config.json", "r") as f:
+        with open("./data/models/listnet_config.json", "r") as f:
             config = json.load(f)
         self.model = ListNet(**config)
-        self.model.load_state_dict(torch.load("./models/listnet_latest.pth"))
+        self.model.load_state_dict(torch.load("./data/models/listnet_latest.pth"))
         self.model.eval()
 
     

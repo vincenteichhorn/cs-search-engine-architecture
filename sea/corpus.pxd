@@ -24,7 +24,7 @@ cdef class Corpus:
     cdef str save_path
     cdef bint serve
     cdef str data_file_path
-    cdef DiskArray disk_array
+    cdef public DiskArray disk_array
 
     cdef int data_file_fd
     cdef FILE* data_file_ptr
@@ -34,6 +34,7 @@ cdef class Corpus:
     cdef BytePtr line_buffer
 
     cpdef object py_get(self, uint64_t idx, object processor)
+    cpdef object py_get_document(self, uint64_t idx, bint lowercase)
     cdef Document get_document(self, uint64_t idx, bint lowercase) noexcept nogil
     cdef TokenizedDocument get_tokenized_document(self, uint64_t idx, Tokenizer tokenizer) noexcept nogil
     

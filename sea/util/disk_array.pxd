@@ -43,7 +43,7 @@ cdef class DiskArray:
 
     cdef uint32_t entry_size
     cdef uint64_t current_disk_offset
-    cdef uint64_t current_idx
+    cdef public uint64_t current_idx
     cdef uint64_t current_disk_idx
 
     cdef void _open_read_maps(self) noexcept nogil

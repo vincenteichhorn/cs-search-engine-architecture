@@ -246,6 +246,11 @@ cdef class Corpus:
         cdef const uint8_t[:] data = <const uint8_t[:slice.length]>slice.data #type: ignore
         return processor(idx, data, 0, slice.length)
     
+    cpdef object py_get_document(self, uint64_t idx, bint lowercase):
+        cdef EntryInfo slice = self.disk_array.get(idx)
+        cdef const uint8_t[:] data = <const uint8_t[:slice.length]>slice.data #type: ignore
+        return py_document_processor(idx, data, 0, slice.length, lowercase)
+    
     cdef Document get_document(self, uint64_t idx, bint lowercase) noexcept nogil:
         cdef EntryInfo slice = self.disk_array.get(idx)
         return document_processor(idx, slice.data, 0, slice.length, lowercase)

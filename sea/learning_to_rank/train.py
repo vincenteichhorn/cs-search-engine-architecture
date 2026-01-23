@@ -20,7 +20,7 @@ from sea.learning_to_rank.model import (
 
 DATASET_PATH = "./data/dataset_7_top50.csv"
 NUM_DOCS_PER_QUERY = 50
-SAVE_DIR = "./models/"
+SAVE_DIR = "./data/models/"
 
 TRAIN_RATIO = 0.8
 VALID_RATIO = 0.1
@@ -28,9 +28,9 @@ TEST_RATIO = 0.1
 
 
 def ndcg_at_k_random_baseline(N, k):
-    return (
-        ((2 ** (N + 1) - N - 2) / N) * sum(1 / math.log2(i + 1) for i in range(1, k + 1))
-    ) / sum((2 ** (N - i + 1) - 1) / math.log2(i + 1) for i in range(1, k + 1))
+    return (((2 ** (N + 1) - N - 2) / N) * sum(1 / math.log2(i + 1) for i in range(1, k + 1))) / sum(
+        (2 ** (N - i + 1) - 1) / math.log2(i + 1) for i in range(1, k + 1)
+    )
 
 
 def dcgs(predictions, relevances, k):
@@ -142,9 +142,7 @@ def evaluate(model, dataloader, criterion, k=10):
     all_losses = []
 
     with torch.no_grad():
-        for features, ranks in tqdm(
-            dataloader, desc="Evaluating", unit="batch", position=1, leave=False
-        ):
+        for features, ranks in tqdm(dataloader, desc="Evaluating", unit="batch", position=1, leave=False):
             outputs = model(features)
             loss = criterion(outputs, ranks)
             all_losses.append(loss.item())
@@ -204,9 +202,7 @@ def train(
             )
         if validate_dataloader and ((batch_idx + 1) % validate_every == 0 or batch_idx == 0):
             ndcg_score, mrr_score, val_loss = evaluate(model, validate_dataloader, criterion, k=10)
-            pbar.write(
-                f"val/loss: {val_loss:.4f}, val/ndcg@10: {ndcg_score:.4f}, val/mrr@10: {mrr_score:.4f}"
-            )
+            pbar.write(f"val/loss: {val_loss:.4f}, val/ndcg@10: {ndcg_score:.4f}, val/mrr@10: {mrr_score:.4f}")
             if wandb_run:
                 wandb_run.log(
                     {
@@ -232,9 +228,7 @@ if __name__ == "__main__":
     dataset_df = pd.read_csv(DATASET_PATH)
 
     num_queries = 64000
-    dataset_df = dataset_df[
-        dataset_df["query_id"].isin(dataset_df["query_id"].unique()[:num_queries])
-    ].reset_index(drop=True)
+    dataset_df = dataset_df[dataset_df["query_id"].isin(dataset_df["query_id"].unique()[:num_queries])].reset_index(drop=True)
 
     print(dataset_df.head())
 

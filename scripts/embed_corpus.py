@@ -9,9 +9,11 @@ from transformers import AutoTokenizer, AutoModel
 import gzip
 from tqdm import tqdm
 
-OUT_FILE = "./data/title_body_embeddings.npy"
-BATCH_SIZE = 256
-NUM_SAMPLES = 3_213_835
+OUT_FILE = "./data/embeddings/all/title_body_embeddings.npy"
+if not os.path.exists(os.path.dirname(OUT_FILE)):
+    os.makedirs(os.path.dirname(OUT_FILE), exist_ok=True)
+BATCH_SIZE = 265
+NUM_SAMPLES = 3_213_835  # 3_213_835
 FILE_PATH = "./data/msmarco-docs.tsv.gz"
 MAT_DIM = 64
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -24,6 +26,7 @@ def mean_pooling(model_output, attention_mask):
 
 
 def embed_texts(model, tokenizer, device, sentences, matryoshka=None, type="document"):
+    empty_doc_ids = [i for i, s in enumerate(sentences) if s.strip() == ""]
     if type == "query":
         sentences = [f"search query: {s}" for s in sentences]
     if type == "document":
@@ -34,7 +37,9 @@ def embed_texts(model, tokenizer, device, sentences, matryoshka=None, type="docu
         model_output = model(**encoded_input)
     embeddings = mean_pooling(model_output, encoded_input["attention_mask"])
     if matryoshka is not None:
+        embeddings = F.layer_norm(embeddings, normalized_shape=(embeddings.shape[1],))
         embeddings = embeddings[:, :matryoshka]
+    embeddings[empty_doc_ids] = 0.0
     embeddings = F.normalize(embeddings, p=2, dim=1)
     return embeddings
 
@@ -57,7 +62,7 @@ class TextDataset(Dataset):
             for line in tqdm(f, desc="Loading Dataset", total=num_samples):
                 try:
                     ln = line.strip().split("\t")
-                    self.lines.append(f"{ln[2]}{ln[3]}")
+                    self.lines.append(f"{ln[2]} {ln[3]}")
                 except Exception:
                     self.lines.append("")
                 count += 1
@@ -99,7 +104,7 @@ if __name__ == "__main__":
     embeddings = np.fromfile(OUT_FILE, dtype="float32").reshape(-1, MAT_DIM)
     print(embeddings.shape)
 
-    query = "yellow flowers"
+    query = "the hot glowing surface"
     encoded_input = tokenizer([query], padding=True, truncation=True, return_tensors="pt").to(device)
     query_embedding = embed_texts(model, tokenizer, device, [query], matryoshka=MAT_DIM, type="query")
     embeddings = torch.from_numpy(embeddings).to(device)
