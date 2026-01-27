@@ -14,7 +14,7 @@ def test_corpus_iter(tmp_path_factory):
     data = "./data/msmarco-docs.tsv"
     corpus = Corpus(tmp_path, data)
 
-    MAX_ITER = 10
+    MAX_ITER = 100
     c = 0
     got = []
     with open(data, "rb") as f:
@@ -25,6 +25,7 @@ def test_corpus_iter(tmp_path_factory):
             c += 1
             if c > MAX_ITER:
                 break
+
     c = 0
     with open(data, "rb") as f:
         for line in f:

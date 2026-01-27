@@ -218,7 +218,7 @@ cdef class Corpus:
             self.data_file_ptr = fdopen(self.data_file_fd, "r")
             if self.data_file_ptr == NULL:
                 raise OSError("Failed to open data file pointer: " + data_file_path)
-            self.max_line_length = 100 * 1024  # 10 KB
+            self.max_line_length = 100 * 1024 * 1024  # 10 MB
             self.line_buffer = <BytePtr>malloc(self.max_line_length)
             self.data_offset = self.disk_array.data_size
             if self.data_offset > self.data_size:

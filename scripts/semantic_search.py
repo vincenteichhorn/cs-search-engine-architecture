@@ -1,6 +1,5 @@
 import torch
 import torch.nn.functional as F
-from torch.amp import autocast
 import numpy as np
 
 from transformers import AutoTokenizer, AutoModel
@@ -34,7 +33,10 @@ def embed_texts(model, tokenizer, device, sentences, matryoshka=None, type="docu
 
 
 MAT_DIM = 64
-OUT_FILE = "./data/embeddings/100/title_body_embeddings.npy"
+NAME = "100k"
+INDEX_PATH = "./data/indices"
+EMBEDDINGS_FILE = f"./data/embeddings/{NAME}.npy"
+MODEL_PATH = "./data/models"
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 if __name__ == "__main__":
@@ -45,29 +47,27 @@ if __name__ == "__main__":
     model.to(device)
 
     print("Loading embeddings...")
-    embeddings = np.fromfile(OUT_FILE, dtype="float32").reshape(-1, MAT_DIM)
+    embeddings = np.fromfile(EMBEDDINGS_FILE, dtype="float32").reshape(-1, MAT_DIM)
     embeddings = torch.from_numpy(embeddings).to(device)
-    print(embeddings.shape)
+    num_zero_embeddings = torch.sum(torch.all(embeddings == 0, dim=1)).item()
+    print(f"Number of zero embeddings: {num_zero_embeddings}")
 
     print("Loading search engine...")
+    engine = Engine(NAME, INDEX_PATH, EMBEDDINGS_FILE, MODEL_PATH)
 
-    INDEX_PATH = "./data/indices/all"
-    engine = Engine(INDEX_PATH)
-    print(engine.corpus.disk_array.current_idx)
-
-    print(engine.corpus.py_get_document(0, lowercase=False)["title"])
-    print(engine.corpus.py_get_document(1, lowercase=False)["title"])
-
+    print("=" * 80)
     while True:
 
         query = input("Enter query: ")
-        encoded_input = tokenizer([query], padding=True, truncation=True, return_tensors="pt").to(device)
         query_embedding = embed_texts(model, tokenizer, device, [query], matryoshka=MAT_DIM, type="query")
-        query_vec = query_embedding.view(-1)  # Shape: [64]
-        cos_sims = torch.mv(embeddings, query_vec)  # Shape: [N]
-        scores, arg_sorted = torch.sort(cos_sims, descending=True)
+        query_embedding = query_embedding.view(-1)  # Shape: [64]
+        cos_sims = torch.mv(embeddings, query_embedding)  # Shape: [N]
+        scores, arg_sorted = torch.topk(cos_sims, k=10, largest=True, sorted=True)
 
-        for scr, idx in zip(scores[:10], arg_sorted[:10]):
+        for scr, idx in zip(scores[:3], arg_sorted[:3]):
             print(f"Score: {scr.item()}, ID: {idx.item()}")
-            print(engine.corpus.py_get_document(idx.item(), lowercase=False)["title"])
-            print()
+            doc = engine.corpus.py_get_document(idx.item(), lowercase=False)
+            print(doc["title"])
+            print(doc["body"][:200])
+            print("-" * 80)
+        print("=" * 80)

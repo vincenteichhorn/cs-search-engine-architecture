@@ -38,7 +38,10 @@ cdef bint compare_postings_scores(SearchResultPosting& a, SearchResultPosting& b
 
 cdef class Engine:
 
-    cdef str save_path
+    cdef str name
+    cdef str index_path
+    cdef str embeddings_path
+    cdef str model_path
     cdef public Corpus corpus
     cdef public Tokenizer tokenizer
     cdef QueryParser query_parser
@@ -59,20 +62,23 @@ cdef class Engine:
     cdef object model
 
 
-    def __cinit__(self, save_path):
+    def __cinit__(self, name, index_path, embeddings_path, model_path):
 
-        self.save_path = save_path
-        self.corpus = Corpus(save_path, "", mmap=True)
-        self.tokenizer = Tokenizer(save_path, mmap=True)
+        self.name = name
+        self.index_path = index_path
+        self.embeddings_path = embeddings_path
+        self.model_path = model_path
+        self.corpus = Corpus(os.path.join(self.index_path, self.name), "", mmap=True)
+        self.tokenizer = Tokenizer(os.path.join(self.index_path, self.name), mmap=True)
 
         self.tier_disk_arrays = {}
-        for path in os.listdir(save_path):
+        for path in os.listdir(os.path.join(self.index_path, self.name)):
             if path.startswith(TIER_PREFIX):
                 try:
                     tier_id = int(path[len(TIER_PREFIX):])
                 except ValueError:
                     continue
-                self.tier_disk_arrays[tier_id] = DiskArray(os.path.join(self.save_path, path))
+                self.tier_disk_arrays[tier_id] = DiskArray(os.path.join(self.index_path, self.name, path))
         self.num_tiers = len(self.tier_disk_arrays)
         
         self.global_document_frequencies = unordered_map[uint64_t, uint64_t]()
@@ -83,6 +89,14 @@ cdef class Engine:
             entry = it.next_entry()
             self.global_document_frequencies[token_id] = entry.payload
             token_id += 1
+        self.num_total_docs = NUM_TOTAL_DOCS
+        self.average_field_lengths = vector[float]()
+        for avg_len in AVG_FIELD_LENGTHS:
+            self.average_field_lengths.push_back(avg_len)
+        self.bm25_k = BM25_K
+        self.bm25_bs = vector[float]()
+        for b in BM25_BS:
+            self.bm25_bs.push_back(b)
         
         self.tokenizer.py_tokenize(b"and or not ( ) \"", True)  # Preload special tokens into vocabulary
         self.and_operator=self.tokenizer.py_vocab_lookup(b"and")
@@ -98,20 +112,11 @@ cdef class Engine:
         )
         self.spelling_corrector = SpellingCorrector(self.tokenizer, self.global_document_frequencies, exclude_threshold=SPELLING_FREQUENCY_THRESHOLD)
 
-        self.num_total_docs = NUM_TOTAL_DOCS
-        self.average_field_lengths = vector[float]()
-        for avg_len in AVG_FIELD_LENGTHS:
-            self.average_field_lengths.push_back(avg_len)
-        self.bm25_k = BM25_K
-        self.bm25_bs = vector[float]()
-        for b in BM25_BS:
-            self.bm25_bs.push_back(b)
-
         cdef dict config
-        with open("./data/models/listnet_config.json", "r") as f:
+        with open(os.path.join(self.model_path, f"{self.name}.json"), "r") as f:
             config = json.load(f)
         self.model = ListNet(**config)
-        self.model.load_state_dict(torch.load("./data/models/listnet_latest.pth"))
+        self.model.load_state_dict(torch.load(os.path.join(self.model_path, f"{self.name}.pth")))
         self.model.eval()
 
     
@@ -394,7 +399,6 @@ cdef class Engine:
 
         sort(results_pair.first.begin(), results_pair.first.end(), compare_postings_scores)
         cdef vector[uint32_t] ranking_indices = self._rank_documents(tokenized_query.tokens, results_pair.first, pre_select_k)
-
         cdef vector[Document] documents = self._retrieve_documents_with_snippets(results_pair.first, ranking_indices, top_k)
         results = [doc_to_dict(documents[i]) for i in range(min(top_k, results_pair.first.size()))]
 

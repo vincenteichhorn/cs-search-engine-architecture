@@ -5,7 +5,10 @@ from sea.corpus import Corpus, py_document_processor
 from sea.engine import Engine
 import shutil
 
-INDEX_PATH = "./data/indices/all"
+NAME = "all"
+INDEX_PATH = "./data/indices"
+EMBEDDINGS_PATH = f"./data/embeddings/"
+MODEL_PATH = "./data/models"
 DATASET = "./data/msmarco-docs.tsv"  # "./data/testing_merge.tsv"
 MAX_DOCUMENTS = 3_213_835  # 3_213_835
 PARTITION_SIZE = 20_000
@@ -21,9 +24,7 @@ def underline_string(s: str) -> str:
 
 def index():
 
-    inp = input(
-        f"Do you really want to (re)build the index at {INDEX_PATH}? This will delete any existing index. (y/n): "
-    )
+    inp = input(f"Do you really want to (re)build the index at {INDEX_PATH}? This will delete any existing index. (y/n): ")
     if inp.lower() != "y":
         return
     if os.path.exists(INDEX_PATH):
@@ -37,7 +38,7 @@ def serve():
 
     print("Loading...")
     start = time.time()
-    engine = Engine(INDEX_PATH)
+    engine = Engine(NAME, INDEX_PATH, EMBEDDINGS_PATH, MODEL_PATH)
     end = time.time()
     print(f"Loaded in {(end - start) * 1000:.4f} milliseconds.")
 
