@@ -132,7 +132,7 @@ def save_model(model, config, save_dir, model_name="listnet"):
 
 DATASET_PATH = "./data/dataset_7_top50.csv"
 SAVE_DIR = "./data/models/"
-MODEL_NAME = "listnet_latest"
+MODEL_NAME = "all"
 NUM_QUERIES = 1000  # Limit number of queries for faster training during testing
 NUM_DOCS_PER_QUERY = 50
 NUM_DOCS_PER_QUERY = 50
@@ -166,6 +166,8 @@ if __name__ == "__main__":
         "epochs": EPOCHS,
     }
     model = ListNet(in_features=config["in_features"], dropout=config["dropout"], means=config["means"], stds=config["stds"])
+
+    save_model(model, config, SAVE_DIR, MODEL_NAME)
 
     # wandb.login()
     # wandb_run = wandb.init(project="sea-ltr", config=config)
