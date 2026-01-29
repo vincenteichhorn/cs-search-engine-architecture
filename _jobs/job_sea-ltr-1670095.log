@@ -1,0 +1,5 @@
++ export PATH=/sc/home/vincent.eichhorn/.cache/pypoetry/virtualenvs/sea-lPqU7ENv-py3.13/bin:/sc/home/vincent.eichhorn/conda3/condabin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin
++ PATH=/sc/home/vincent.eichhorn/.cache/pypoetry/virtualenvs/sea-lPqU7ENv-py3.13/bin:/sc/home/vincent.eichhorn/conda3/condabin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin
++ cd /sc/home/vincent.eichhorn/cs-search-engine-architecture
++ poetry install
+/var/spool/slurmd/job1670095/slurm_script: line 17: poetry: command not found

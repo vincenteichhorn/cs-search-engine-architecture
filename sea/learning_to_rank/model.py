@@ -39,6 +39,8 @@ class ListNet(nn.Module):
         # X has shape (batch_size, num_docs, num_features)
         # normalize features if means and stds are provided
         if self.means is not None and self.stds is not None:
+            self.means = self.means.to(X.device)
+            self.stds = self.stds.to(X.device)
             X = (X - self.means) / self.stds
         scores = self.net(X).squeeze(-1)  # shape (batch_size, num_docs)
         return scores

@@ -1,3 +1,4 @@
+import argparse
 import os
 from typing import Tuple
 import pandas as pd
@@ -28,38 +29,31 @@ def ndcg_at_k_random_baseline(N: int, k: int) -> float:
     )
 
 
-def dcgs_at_k(predictions: torch.Tensor, relevances: torch.Tensor, k: int) -> np.ndarray:
+def dcgs_at_k(predictions: torch.Tensor, relevances: torch.Tensor, k: int) -> torch.Tensor:
     """
-    DCG@k for predictions agains relevances (higher = better).
+    Vectorized GPU implementation of DCG@k.
     """
-    assert predictions.shape == relevances.shape, "Predictions and relevances must have the same shape."
-    batch_size = predictions.shape[0]
-    dcg_scores = []
+    k = min(k, predictions.shape[1])
+    _, indices = torch.sort(predictions, descending=True, dim=1)
+    top_k_indices = indices[:, :k]
 
-    for i in range(batch_size):
-        _, pred_order = torch.sort(predictions[i], descending=True)
-        dcg_score = 0.0
+    gathered_relevances = torch.gather(relevances, 1, top_k_indices)
+    ranks = torch.arange(1, k + 1, device=predictions.device, dtype=torch.float32)
+    denominators = torch.log2(ranks + 1.0)
 
-        for rank_idx in range(min(k, len(pred_order))):
-            doc_idx = pred_order[rank_idx]
-            rel_i = relevances[i][doc_idx]
-            denom = math.log2(rank_idx + 2)  # rank_idx starts at 0
-            dcg_score += (2**rel_i - 1) / denom
+    gains = 2**gathered_relevances - 1
 
-        dcg_scores.append(dcg_score)
-
-    return np.array(dcg_scores)
+    return torch.sum(gains / denominators, dim=1)
 
 
 def ndcg_at_k(predictions: torch.Tensor, relevances: torch.Tensor, k: int) -> float:
     """
-    NDCG@k for predictions against relevances (higher = better).
+    Vectorized GPU implementation of NDCG@k.
     """
-    assert predictions.shape == relevances.shape, "Predictions and relevances must have the same shape."
-    dcgs_scores = dcgs_at_k(predictions, relevances, k)
-    ideal_dcgs_scores = dcgs_at_k(relevances, relevances, k)
-    ndcg_scores = dcgs_scores / (ideal_dcgs_scores + 1e-8)
-    return np.mean(ndcg_scores)
+    dcg = dcgs_at_k(predictions, relevances, k)
+    idcg = dcgs_at_k(relevances, relevances, k)
+    ndcg = dcg / (idcg + 1e-8)
+    return ndcg.mean().item()
 
 
 def mrr_at_k(predictions: torch.Tensor, relevances: torch.Tensor, k: int) -> float:
@@ -69,22 +63,16 @@ def mrr_at_k(predictions: torch.Tensor, relevances: torch.Tensor, k: int) -> flo
     relevances: Tensor of shape (batch_size, num_docs) with ground truth relevances (higher = better).
     k: int, the cutoff rank.
     """
-    batch_size = predictions.shape[0]
-    mrr_scores = []
+    _, top_k_indices = torch.topk(predictions, k, dim=1)
 
-    for i in range(batch_size):
-        _, pred_order = torch.sort(predictions[i], descending=True)
-        rr = 0.0
-        max_relevance = relevances[i].max()
-        for rank_idx in range(min(k, len(pred_order))):
-            doc_idx = pred_order[rank_idx]
-            if relevances[i][doc_idx] == max_relevance:  # ground truth best relevance
-                rr = 1.0 / (rank_idx + 1)
-                break
+    top_k_relevances = torch.gather(relevances, 1, top_k_indices)
+    max_rel, _ = torch.max(relevances, dim=1, keepdim=True)
+    hits = top_k_relevances == max_rel
+    hit_ranks = torch.argmax(hits.to(torch.int), dim=1)
+    found_mask = hits.any(dim=1)
+    rr = torch.where(found_mask, 1.0 / (hit_ranks.to(torch.float) + 1.0), torch.tensor(0.0, device=predictions.device))
 
-        mrr_scores.append(rr)
-
-    return np.array(mrr_scores).mean()
+    return rr.mean().item()
 
 
 def split_dataset(df: pd.DataFrame, train_ratio: float, valid_ratio: float) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
@@ -101,25 +89,28 @@ def split_dataset(df: pd.DataFrame, train_ratio: float, valid_ratio: float) -> T
 
 
 def make_dataloaders(
-    train_df: pd.DataFrame, valid_df: pd.DataFrame, test_df: pd.DataFrame, num_docs_per_query: int, batch_size: int
+    train_df: pd.DataFrame, valid_df: pd.DataFrame, test_df: pd.DataFrame, num_docs_per_query: int, batch_size: int, device="cuda"
 ) -> Tuple[DataLoader, DataLoader, DataLoader]:
     train_loader = DataLoader(
-        RankingDataset(train_df, num_docs_per_query),
+        RankingDataset(train_df, num_docs_per_query, device=device),
         batch_size=batch_size,
         shuffle=True,
         collate_fn=collate_fn,
+        # num_workers=8,
     )
     valid_loader = DataLoader(
-        RankingDataset(valid_df, num_docs_per_query),
+        RankingDataset(valid_df, num_docs_per_query, device=device),
         batch_size=batch_size,
         shuffle=False,
         collate_fn=collate_fn,
+        # num_workers=8,
     )
     test_loader = DataLoader(
-        RankingDataset(test_df, num_docs_per_query),
+        RankingDataset(test_df, num_docs_per_query, device=device),
         batch_size=batch_size,
         shuffle=False,
         collate_fn=collate_fn,
+        # num_workers=8,
     )
     return train_loader, valid_loader, test_loader
 
@@ -136,29 +127,39 @@ def save_model(model, config, save_dir, model_name="listnet"):
 
 DATASET_PATH = "./data/dataset_7_top50.csv"
 SAVE_DIR = "./data/models/"
-MODEL_NAME = "all"
-NUM_QUERIES = 100_000  # Limit number of queries for faster training during testing
-NUM_DOCS_PER_QUERY = 50
+MODEL_NAME = "all_final"
+NUM_QUERIES = 10_000  # Limit number of queries for faster training during testing
 NUM_DOCS_PER_QUERY = 50
 TRAIN_RATIO = 0.8
 VALID_RATIO = 0.1
 TEST_RATIO = 0.1
-BATCH_SIZE = 64
+BATCH_SIZE = 256
 DROPOUT = 0.1
-LEARNING_RATE = 5e-6
-EPOCHS = 1
-LOSS_FN_TEMPERATURE = 10
-VALIDATE_EVERY_N_STEPS = 100
+LEARNING_RATE = 5e-4
+EPOCHS = 3
+LOSS_FN_TEMPERATURE = 0.7
+VALIDATE_EVERY_N_STEPS = 25
 
 
 if __name__ == "__main__":
+
+    argparser = argparse.ArgumentParser()
+    argparser.add_argument("--learning_rate", type=float, default=LEARNING_RATE)
+    argparser.add_argument("--temperature", type=float, default=LOSS_FN_TEMPERATURE)
+    args = argparser.parse_args()
+    LEARNING_RATE = args.learning_rate
+    LOSS_FN_TEMPERATURE = args.temperature
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
+
     dataset_df = pd.read_csv(DATASET_PATH)
-    dataset_df = dataset_df[dataset_df["query_id"].isin(dataset_df["query_id"].unique()[:NUM_QUERIES])].reset_index(drop=True)
+    # dataset_df = dataset_df[dataset_df["query_id"].isin(dataset_df["query_id"].unique()[:NUM_QUERIES])].reset_index(drop=True)
 
     train_df, valid_df, test_df = split_dataset(dataset_df, TRAIN_RATIO, VALID_RATIO)
 
     train_dataloader, validate_dataloader, test_dataloader = make_dataloaders(
-        train_df, valid_df, test_df, num_docs_per_query=NUM_DOCS_PER_QUERY, batch_size=BATCH_SIZE
+        train_df, valid_df, test_df, num_docs_per_query=NUM_DOCS_PER_QUERY, batch_size=BATCH_SIZE, device=device
     )
 
     means, stds = train_dataloader.dataset.means_and_stds()
@@ -172,23 +173,25 @@ if __name__ == "__main__":
         "batch_size": BATCH_SIZE,
         "epochs": EPOCHS,
     }
-    model = ListNet(in_features=config["in_features"], dropout=config["dropout"], means=config["means"], stds=config["stds"])
-    criterion = CrossEntropyRankLoss(temperature=config["temperature"])
+    model = ListNet(in_features=config["in_features"], dropout=config["dropout"], means=config["means"], stds=config["stds"]).to(device)
+    criterion = CrossEntropyRankLoss(temperature=config["temperature"]).to(device)
     optimizer = AdamW(model.parameters(), lr=config["learning_rate"])
     lr_scheduler = ReduceLROnPlateau(optimizer, mode="min", factor=0.5, patience=25)
     save_model(model, config, SAVE_DIR, MODEL_NAME)
 
     wandb.login()
-    wandb_run = wandb.init(project="sea-ltr", config=config)
+    wandb_run = wandb.init(project="sea-ltr-test", config=config)
 
     pbar = tqdm(desc="Training Batches", total=len(train_dataloader) * EPOCHS, position=0)
 
     global_step = 0
+    best_val_loss = float("inf")
     for epoch in range(EPOCHS):
         for batch in train_dataloader:
             pbar.update(1)
             global_step += 1
             features, labels = batch
+            features, labels = features.to(device), labels.to(device)
 
             optimizer.zero_grad()
             outputs = model(features)
@@ -196,18 +199,18 @@ if __name__ == "__main__":
             loss.backward()
             optimizer.step()
 
-            train_ndcg_10 = ndcg_at_k(outputs.detach(), labels.detach(), k=10)
-            train_mrr_10 = mrr_at_k(outputs.detach(), labels.detach(), k=10)
+            # train_ndcg_10 = ndcg_at_k(outputs.detach(), labels.detach(), k=10)
+            # train_mrr_10 = mrr_at_k(outputs.detach(), labels.detach(), k=10)
 
-            lr_scheduler.step(loss.item())
+            # lr_scheduler.step(loss.item())
             actual_lr = optimizer.param_groups[0]["lr"]
 
             pbar.set_postfix({"epoch": epoch + 1, "loss": loss.item()})
             wandb_run.log(
-                {"step": global_step, "train/loss": loss.item(), "train/ndcg@10": train_ndcg_10, "train/mrr@10": train_mrr_10, "learning_rate": actual_lr}
+                {"step": global_step, "train/loss": loss.item(), "learning_rate": actual_lr}  # "train/ndcg@10": train_ndcg_10, "train/mrr@10": train_mrr_10,
             )
 
-            if global_step % VALIDATE_EVERY_N_STEPS == 0:
+            if global_step % VALIDATE_EVERY_N_STEPS == 0 or global_step == 1:
                 model.eval()
                 all_predictions = []
                 all_relevances = []
@@ -217,6 +220,7 @@ if __name__ == "__main__":
                     for val_batch in validate_dataloader:
                         val_pbar.update(1)
                         val_features, val_labels = val_batch
+                        val_features, val_labels = val_features.to(device), val_labels.to(device)
                         val_outputs = model(val_features)
                         loss = criterion(val_outputs, val_labels)
                         all_predictions.append(val_outputs)
@@ -226,6 +230,9 @@ if __name__ == "__main__":
                 all_predictions = torch.cat(all_predictions, dim=0)
                 all_relevances = torch.cat(all_relevances, dim=0)
                 avg_val_loss = np.mean(all_losses)
+                if avg_val_loss < best_val_loss:
+                    best_val_loss = avg_val_loss
+                    save_model(model, config, SAVE_DIR, MODEL_NAME + "_best")
 
                 ndcg_10 = ndcg_at_k(all_predictions, all_relevances, k=10)
                 mrr_10 = mrr_at_k(all_predictions, all_relevances, k=10)
@@ -235,5 +242,4 @@ if __name__ == "__main__":
                 model.train()
 
     pbar.close()
-    save_model(model, config, SAVE_DIR, MODEL_NAME)
     wandb_run.finish()
