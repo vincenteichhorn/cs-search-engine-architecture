@@ -23,7 +23,9 @@ def ndcg_at_k_random_baseline(N: int, k: int) -> float:
     """
     NDCG@k for random baseline given N documents.
     """
-    return (((2 ** (N + 1) - N - 2) / N) * sum(1 / math.log2(i + 1) for i in range(1, k + 1))) / sum((2 ** (N - i + 1) - 1) / math.log2(i + 1) for i in range(1, k + 1))
+    return (((2 ** (N + 1) - N - 2) / N) * sum(1 / math.log2(i + 1) for i in range(1, k + 1))) / sum(
+        (2 ** (N - i + 1) - 1) / math.log2(i + 1) for i in range(1, k + 1)
+    )
 
 
 def dcgs_at_k(predictions: torch.Tensor, relevances: torch.Tensor, k: int) -> np.ndarray:
@@ -98,7 +100,9 @@ def split_dataset(df: pd.DataFrame, train_ratio: float, valid_ratio: float) -> T
     return train_df, valid_df, test_df
 
 
-def make_dataloaders(train_df: pd.DataFrame, valid_df: pd.DataFrame, test_df: pd.DataFrame, num_docs_per_query: int, batch_size: int) -> Tuple[DataLoader, DataLoader, DataLoader]:
+def make_dataloaders(
+    train_df: pd.DataFrame, valid_df: pd.DataFrame, test_df: pd.DataFrame, num_docs_per_query: int, batch_size: int
+) -> Tuple[DataLoader, DataLoader, DataLoader]:
     train_loader = DataLoader(
         RankingDataset(train_df, num_docs_per_query),
         batch_size=batch_size,
@@ -133,26 +137,29 @@ def save_model(model, config, save_dir, model_name="listnet"):
 DATASET_PATH = "./data/dataset_7_top50.csv"
 SAVE_DIR = "./data/models/"
 MODEL_NAME = "all"
-NUM_QUERIES = 1000  # Limit number of queries for faster training during testing
+NUM_QUERIES = 100_000  # Limit number of queries for faster training during testing
 NUM_DOCS_PER_QUERY = 50
 NUM_DOCS_PER_QUERY = 50
 TRAIN_RATIO = 0.8
 VALID_RATIO = 0.1
 TEST_RATIO = 0.1
 BATCH_SIZE = 64
-DROPOUT = 0.2
-LEARNING_RATE = 1e-5
-EPOCHS = 3
-LOSS_FN_TEMPERATURE = 0.5
+DROPOUT = 0.1
+LEARNING_RATE = 5e-6
+EPOCHS = 1
+LOSS_FN_TEMPERATURE = 10
+VALIDATE_EVERY_N_STEPS = 100
 
 
 if __name__ == "__main__":
     dataset_df = pd.read_csv(DATASET_PATH)
     dataset_df = dataset_df[dataset_df["query_id"].isin(dataset_df["query_id"].unique()[:NUM_QUERIES])].reset_index(drop=True)
-    print(dataset_df.head())
 
     train_df, valid_df, test_df = split_dataset(dataset_df, TRAIN_RATIO, VALID_RATIO)
-    train_dataloader, validate_dataloader, test_dataloader = make_dataloaders(train_df, valid_df, test_df, num_docs_per_query=NUM_DOCS_PER_QUERY, batch_size=BATCH_SIZE)
+
+    train_dataloader, validate_dataloader, test_dataloader = make_dataloaders(
+        train_df, valid_df, test_df, num_docs_per_query=NUM_DOCS_PER_QUERY, batch_size=BATCH_SIZE
+    )
 
     means, stds = train_dataloader.dataset.means_and_stds()
     config = {
@@ -166,8 +173,67 @@ if __name__ == "__main__":
         "epochs": EPOCHS,
     }
     model = ListNet(in_features=config["in_features"], dropout=config["dropout"], means=config["means"], stds=config["stds"])
-
+    criterion = CrossEntropyRankLoss(temperature=config["temperature"])
+    optimizer = AdamW(model.parameters(), lr=config["learning_rate"])
+    lr_scheduler = ReduceLROnPlateau(optimizer, mode="min", factor=0.5, patience=25)
     save_model(model, config, SAVE_DIR, MODEL_NAME)
 
-    # wandb.login()
-    # wandb_run = wandb.init(project="sea-ltr", config=config)
+    wandb.login()
+    wandb_run = wandb.init(project="sea-ltr", config=config)
+
+    pbar = tqdm(desc="Training Batches", total=len(train_dataloader) * EPOCHS, position=0)
+
+    global_step = 0
+    for epoch in range(EPOCHS):
+        for batch in train_dataloader:
+            pbar.update(1)
+            global_step += 1
+            features, labels = batch
+
+            optimizer.zero_grad()
+            outputs = model(features)
+            loss = criterion(outputs, labels)
+            loss.backward()
+            optimizer.step()
+
+            train_ndcg_10 = ndcg_at_k(outputs.detach(), labels.detach(), k=10)
+            train_mrr_10 = mrr_at_k(outputs.detach(), labels.detach(), k=10)
+
+            lr_scheduler.step(loss.item())
+            actual_lr = optimizer.param_groups[0]["lr"]
+
+            pbar.set_postfix({"epoch": epoch + 1, "loss": loss.item()})
+            wandb_run.log(
+                {"step": global_step, "train/loss": loss.item(), "train/ndcg@10": train_ndcg_10, "train/mrr@10": train_mrr_10, "learning_rate": actual_lr}
+            )
+
+            if global_step % VALIDATE_EVERY_N_STEPS == 0:
+                model.eval()
+                all_predictions = []
+                all_relevances = []
+                all_losses = []
+                with torch.no_grad():
+                    val_pbar = tqdm(desc="Validation Batches", total=len(validate_dataloader), position=1, leave=False)
+                    for val_batch in validate_dataloader:
+                        val_pbar.update(1)
+                        val_features, val_labels = val_batch
+                        val_outputs = model(val_features)
+                        loss = criterion(val_outputs, val_labels)
+                        all_predictions.append(val_outputs)
+                        all_relevances.append(val_labels)
+                        all_losses.append(loss.item())
+                    val_pbar.close()
+                all_predictions = torch.cat(all_predictions, dim=0)
+                all_relevances = torch.cat(all_relevances, dim=0)
+                avg_val_loss = np.mean(all_losses)
+
+                ndcg_10 = ndcg_at_k(all_predictions, all_relevances, k=10)
+                mrr_10 = mrr_at_k(all_predictions, all_relevances, k=10)
+
+                pbar.write(f"Validation NDCG@10: {ndcg_10:.4f}/0.31, MRR@10: {mrr_10:.4f}/0.25, Loss: {avg_val_loss:.4f}")
+                wandb_run.log({"step": global_step, "valid/ndcg@10": ndcg_10, "valid/mrr@10": mrr_10, "valid/loss": avg_val_loss})
+                model.train()
+
+    pbar.close()
+    save_model(model, config, SAVE_DIR, MODEL_NAME)
+    wandb_run.finish()

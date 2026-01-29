@@ -45,7 +45,7 @@ class ListNet(nn.Module):
 
 
 class CrossEntropyRankLoss(nn.Module):
-    def __init__(self, temperature: float = 0.5):
+    def __init__(self, temperature: float = 10):
         super(CrossEntropyRankLoss, self).__init__()
         self.temperature = temperature
 
