@@ -31,8 +31,12 @@ cdef void print_query_tree(QueryNode* node, Tokenizer tokenizer, uint64_t depth)
     else:
         with gil:
             print(f"Op: {tokenizer.py_get(node.values[0])}")
-        print_query_tree(node.left, tokenizer, depth + 1)
-        print_query_tree(node.right, tokenizer, depth + 1)
+                
+            if tokenizer.py_get(node.values[0]).lower() == "not":
+                print_query_tree(node.right, tokenizer, depth + 1)
+            else:
+                print_query_tree(node.left, tokenizer, depth + 1)
+                print_query_tree(node.right, tokenizer, depth + 1)
 
 cdef dict query_tree_to_dict(QueryNode* node):
     cdef dict result = {}

@@ -38,14 +38,14 @@ cdef class Tokenizer:
         self.save_path = save_path
         self.stopwords = unordered_set[uint64_t]()
         self.query_stopwords = unordered_set[uint64_t]()
+        cdef unordered_set[uint64_t] exclude_stop_words = unordered_set[uint64_t]()
         cdef bytes word
-        cdef uint64_t hash
+        for word in QUERY_EXCLUDE_WORDS:
+            exclude_stop_words.insert(fnv1a_hash(word, len(word)))
         for word in STOPWORDS:
             self.stopwords.insert(fnv1a_hash(word, len(word)))
-        for word in QUERY_EXCLUDE_WORDS:
-            hash = fnv1a_hash(word, len(word))
-            if not self.stopwords.find(hash) != self.stopwords.end():
-                self.query_stopwords.insert(hash)
+            if not exclude_stop_words.find(fnv1a_hash(word, len(word))) != exclude_stop_words.end():
+                self.query_stopwords.insert(fnv1a_hash(word, len(word)))
         self.stem = stem
         if self.stem:
             self.stemmer = FastStemmer()

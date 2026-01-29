@@ -13,7 +13,7 @@ OUT_FILE = "./data/embeddings/100k/title_body_embeddings.npy"
 if not os.path.exists(os.path.dirname(OUT_FILE)):
     os.makedirs(os.path.dirname(OUT_FILE), exist_ok=True)
 BATCH_SIZE = 265
-NUM_SAMPLES = 100_000 #3_213_835  # 3_213_835
+NUM_SAMPLES = 100_000  # 3_213_835  # 3_213_835
 FILE_PATH = "./data/msmarco-docs.tsv.gz"
 MAT_DIM = 64
 device = "cuda" if torch.cuda.is_available() else "cpu"

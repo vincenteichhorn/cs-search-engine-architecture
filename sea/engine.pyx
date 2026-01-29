@@ -21,6 +21,8 @@ from cython.cimports.libc.stdint cimport UINT32_MAX
 from libc.time cimport clock, CLOCKS_PER_SEC, clock_t
 import numpy as np
 from libcpp.unordered_set cimport unordered_set
+from transformers import AutoTokenizer, AutoModel
+import torch.nn.functional as F
 
 cdef str TIER_PREFIX = "tier_"
 cdef size_t SNIPPET_RADIUS = 150
@@ -30,6 +32,7 @@ cdef list BM25_FIELD_BOOSTS = [1.0, 0.5]
 cdef list BM25_BS = [0.75, 0.75]
 cdef float BM25_K = 1.5
 cdef list AVG_FIELD_LENGTHS = [4.358767951683892, 783.4649271042229]
+cdef int MAT_DIM = 64
 
 ctypedef char* CharPtr
 
@@ -59,7 +62,13 @@ cdef class Engine:
     cdef vector[float] average_field_lengths
     cdef float bm25_k
     cdef vector[float] bm25_bs
-    cdef object model
+
+    cdef str device
+    cdef object ltr_model
+
+    cdef object corpus_embeddings
+    cdef object embed_model
+    cdef object embed_tokenizer
 
 
     def __cinit__(self, name, index_path, embeddings_path, model_path):
@@ -112,14 +121,38 @@ cdef class Engine:
         )
         self.spelling_corrector = SpellingCorrector(self.tokenizer, self.global_document_frequencies, exclude_threshold=SPELLING_FREQUENCY_THRESHOLD)
 
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
         cdef dict config
         with open(os.path.join(self.model_path, f"{self.name}.json"), "r") as f:
             config = json.load(f)
-        self.model = ListNet(**config)
-        self.model.load_state_dict(torch.load(os.path.join(self.model_path, f"{self.name}.pth")))
-        self.model.eval()
+        self.ltr_model = ListNet(**config)
+        self.ltr_model.load_state_dict(torch.load(os.path.join(self.model_path, f"{self.name}.pth"), map_location=self.device))
+        self.ltr_model.eval()
 
-    
+        self.corpus_embeddings = torch.tensor(np.fromfile(os.path.join(self.embeddings_path, f"{self.name}.npy"), dtype="float32").reshape(-1, MAT_DIM))
+        self.embed_tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
+        self.embed_model = AutoModel.from_pretrained("nomic-ai/nomic-embed-text-v1.5", trust_remote_code=True, safe_serialization=True)
+        self.embed_model.eval()
+        self.embed_model.to(self.device)
+
+    cdef _mean_pooling(self, object model_output, object attention_mask):
+        token_embeddings = model_output[0]
+        input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
+        return torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
+
+
+    cdef _embed_query(self, str query):
+        sentences = [f"search query: {query}"]
+        encoded_input = self.embed_tokenizer(sentences, padding=True, truncation=True, return_tensors="pt")
+        encoded_input.to(self.device)
+        with torch.no_grad():
+            model_output = self.embed_model(**encoded_input)
+        embeddings = self._mean_pooling(model_output, encoded_input["attention_mask"])
+        embeddings = F.layer_norm(embeddings, normalized_shape=(embeddings.shape[1],))
+        embeddings = embeddings[:, :MAT_DIM]
+        embeddings = F.normalize(embeddings, p=2, dim=1).squeeze(0)
+        return embeddings
+
     cpdef object simulate_feature_matrix(self, list doc_ids, str query_text):
         cdef vector[uint64_t] query_tokens = vector[uint64_t]()
         cdef bytes query_bytes = query_text.encode("utf-8")
@@ -237,8 +270,11 @@ cdef class Engine:
     cdef pair[CharPtr, uint32_t] _get_snippet(self, Document doc, SearchResultPosting posting):
 
         cdef size_t snippet_length = SNIPPET_RADIUS
-        cdef uint32_t l = posting.char_positions.size() - 1
-        cdef uint32_t position = posting.char_positions[l][0] - doc.title_length if posting.char_positions[l].size() > 0 else 0
+        cdef uint32_t l
+        cdef uint32_t position = doc.title_length + snippet_length // 2
+        if posting.char_positions.size() != 0:
+            l = posting.char_positions.size() - 1
+            position = posting.char_positions[l][0] - doc.title_length if posting.char_positions[l].size() > 0 else 0
         if posting.snippet_position != 0:
             position = posting.snippet_position - doc.title_length
         if position >= doc.body_length:
@@ -270,7 +306,7 @@ cdef class Engine:
         snippet[end_pos - start_pos] = '\0'
         return pair[CharPtr, uint32_t](snippet, end_pos - start_pos)
 
-    cdef vector[Document] _retrieve_documents_with_snippets(self, vector[SearchResultPosting]& postings, vector[uint32_t] indices, uint32_t top_k) noexcept nogil:
+    cdef vector[Document] _retrieve_documents_from_postings_with_snippets(self, vector[SearchResultPosting]& postings, vector[uint32_t] indices, uint32_t top_k) noexcept nogil:
 
         cdef vector[Document] documents = vector[Document]()
         cdef Document doc
@@ -294,6 +330,7 @@ cdef class Engine:
                 break
         return documents
     
+
     cdef pair[vector[SearchResultPosting], bint] _full_boolean_search(self, QueryNode* node, uint32_t min_tier, uint32_t max_tier):
 
 
@@ -363,12 +400,30 @@ cdef class Engine:
             self.bm25_bs
         )
         cdef object input = torch.tensor([feature_matrix])
-        cdef object output = self.model(input)[0]
+        cdef object output = self.ltr_model(input)[0]
         cdef list ranked_document_indices = list(torch.argsort(output, descending=True))
         cdef vector[uint32_t] ranked_documents = vector[uint32_t]()
         for i in range(len(ranked_document_indices)):
             ranked_documents.push_back(ranked_document_indices[i])
         return ranked_documents
+
+    cpdef list semantic_search(self, str query, size_t top_k):
+
+        cdef bytes query_bytes = query.lower().encode("utf-8")
+        cdef const char* query_c = query_bytes
+        cdef TokenizedField tokenized_query = self.tokenizer.tokenize(query_c, len(query_bytes), True)
+
+        cdef object query_embedding = self._embed_query(query)
+        cdef object similarity_scores = torch.matmul(self.corpus_embeddings, query_embedding)
+        cdef object top_k_results = torch.topk(similarity_scores, k=top_k)
+        cdef list top_k_indices = list(top_k_results.indices)
+        cdef vector[SearchResultPosting] sr_postings = self.simulate_search_result(top_k_indices, tokenized_query.tokens)
+        cdef vector[Document] documents = self._retrieve_documents_from_postings_with_snippets(sr_postings, vector[uint32_t](), top_k)
+        for i in range(documents.size()):
+            documents[i].score = top_k_results.values[<int>i].item()
+        cdef list results = [doc_to_dict(documents[i]) for i in range(min(top_k, sr_postings.size()))]
+        return results
+        
         
     cpdef list search(self, str query, size_t pre_select_k, size_t top_k):
 
@@ -399,7 +454,7 @@ cdef class Engine:
 
         sort(results_pair.first.begin(), results_pair.first.end(), compare_postings_scores)
         cdef vector[uint32_t] ranking_indices = self._rank_documents(tokenized_query.tokens, results_pair.first, pre_select_k)
-        cdef vector[Document] documents = self._retrieve_documents_with_snippets(results_pair.first, ranking_indices, top_k)
+        cdef vector[Document] documents = self._retrieve_documents_from_postings_with_snippets(results_pair.first, ranking_indices, top_k)
         results = [doc_to_dict(documents[i]) for i in range(min(top_k, results_pair.first.size()))]
 
         return results

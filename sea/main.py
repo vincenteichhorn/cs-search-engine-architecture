@@ -5,7 +5,7 @@ from sea.corpus import Corpus, py_document_processor
 from sea.engine import Engine
 import shutil
 
-NAME = "all"
+NAME = "100k"
 INDEX_PATH = "./data/indices"
 EMBEDDINGS_PATH = f"./data/embeddings/"
 MODEL_PATH = "./data/models"
@@ -46,7 +46,8 @@ def serve():
         print("=" * os.get_terminal_size().columns)
         query = input("Search: ")
         start = time.time()
-        results = engine.search(query, pre_select_k=50, top_k=10)
+        # results = engine.semantic_search(query, top_k=10)
+        results = engine.search(query, pre_select_k=100, top_k=10)
         end = time.time()
         print(f"Search took {(end - start) * 1000:.4f} milliseconds.")
         for doc in results:
