@@ -152,11 +152,12 @@ cdef class QueryParser:
                     operator_stack.pop_back()
                     node.right = value_stack.back()
                     value_stack.pop_back()
-                    left = value_stack.back() if _operator != self.not_operator else NULL
+                    node.left = value_stack.back() if _operator != self.not_operator else NULL
                     if _operator != self.not_operator:
                         value_stack.pop_back()
                     value_stack.push_back(node)
-                operator_stack.pop_back()
+                if not operator_stack.empty():
+                    operator_stack.pop_back()
             elif token == self.phrase_marker:
                 is_phrase = not is_phrase
                 if is_phrase:

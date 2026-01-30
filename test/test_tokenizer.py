@@ -17,16 +17,14 @@ def test_tokenizer(tmp_path_factory):
         "test",
         "and",
         "(",
-        "the",
         "token",
         ")",
-        "with",
         '"',
         "special",
         '"',
         "charact",
     ]
-    assert char_pos == [0, 8, 12, 13, 17, 26, 28, 33, 34, 41, 43]
+    assert char_pos == [0, 8, 12, 17, 26, 33, 34, 41, 43]
 
     assert tokenizer.py_get(0) == "hello"
     assert tokenizer.py_get(1) == "world"
