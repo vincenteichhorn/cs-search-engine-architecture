@@ -180,7 +180,7 @@ if __name__ == "__main__":
     save_model(model, config, SAVE_DIR, MODEL_NAME)
 
     wandb.login()
-    wandb_run = wandb.init(project="sea-ltr-test", config=config)
+    wandb_run = wandb.init(project="sea-ltr", config=config)
 
     pbar = tqdm(desc="Training Batches", total=len(train_dataloader) * EPOCHS, position=0)
 
