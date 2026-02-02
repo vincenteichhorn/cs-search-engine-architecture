@@ -85,7 +85,7 @@ cdef class Indexer:
     cdef uint32_t num_tiers
     cdef vector[float] tier_thresholds
 
-    def __cinit__(self, str save_path, str dataset, uint32_t max_documents=10_000, uint32_t partition_size=10_000):
+    def __cinit__(self, str save_path, str dataset, uint32_t max_documents=50_000, uint32_t partition_size=10_000):
         self.save_path = save_path
         self.max_documents = max_documents
         self.partition_size = partition_size

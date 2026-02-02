@@ -133,9 +133,9 @@ def _process_query(task):
 
 if __name__ == "__main__":
 
-    build_id_mapping()
+    # build_id_mapping()
 
-    build_id_dataset()
+    # build_id_dataset()
 
     def _build_task_from_rows(qid, rows):
         query_text = rows[0].query_text
@@ -173,7 +173,7 @@ if __name__ == "__main__":
     with open(DATASET_PATH, "w", encoding="utf-8") as f:
         f.write("query_id,bm25_title,bm25_body,title_length,body_length,ratio_query_in_title,ratio_query_in_body,first_occurrence_body,similarity_score,rank\n")
 
-        max_workers = 3
+        max_workers = 4
         max_in_flight = max_workers * 2
         with ProcessPoolExecutor(max_workers=max_workers, initializer=_init_worker, initargs=(NAME, INDEX_PATH, EMBEDDINGS_PATH)) as executor:
             future_to_qid = {}
