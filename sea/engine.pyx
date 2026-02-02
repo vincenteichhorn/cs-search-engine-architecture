@@ -121,25 +121,34 @@ cdef class Engine:
         )
         self.spelling_corrector = SpellingCorrector(self.tokenizer, self.global_document_frequencies, exclude_threshold=SPELLING_FREQUENCY_THRESHOLD)
 
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
         cdef dict config
-        with open(os.path.join(self.model_path, f"{self.name}.json"), "r") as f:
-            config = json.load(f)
-        self.ltr_model = ListNet(**config)
-        self.ltr_model.load_state_dict(torch.load(os.path.join(self.model_path, f"{self.name}.pth"), map_location=self.device))
-        self.ltr_model.eval()
+        try:
+            self.device = "cuda" if torch.cuda.is_available() else "cpu"
+            with open(os.path.join(self.model_path, f"{self.name}.json"), "r") as f:
+                config = json.load(f)
+            self.ltr_model = ListNet(**config)
+            self.ltr_model.load_state_dict(torch.load(os.path.join(self.model_path, f"{self.name}.pth"), map_location=self.device))
+            self.ltr_model.eval()
+        except Exception as e:
+            print(f"Could not load LTR model for index {self.name}: {e}")
+            self.ltr_model = None
 
-        self.corpus_embeddings = torch.tensor(np.fromfile(os.path.join(self.embeddings_path, f"{self.name}.npy"), dtype="float32").reshape(-1, MAT_DIM))
-        self.embed_tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
-        self.embed_model = AutoModel.from_pretrained("nomic-ai/nomic-embed-text-v1.5", trust_remote_code=True, safe_serialization=True)
-        self.embed_model.eval()
-        self.embed_model.to(self.device)
+        try:
+            self.corpus_embeddings = torch.tensor(np.fromfile(os.path.join(self.embeddings_path, f"{self.name}.npy"), dtype="float32").reshape(-1, MAT_DIM))
+            self.embed_tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
+            self.embed_model = AutoModel.from_pretrained("nomic-ai/nomic-embed-text-v1.5", trust_remote_code=True, safe_serialization=True)
+            self.embed_model.eval()
+            self.embed_model.to(self.device)
+        except Exception as e:
+            print(f"Could not load embedding model for index {self.name}: {e}")
+            self.corpus_embeddings = None
+            self.embed_tokenizer = None
+            self.embed_model = None
 
     cdef _mean_pooling(self, object model_output, object attention_mask):
         token_embeddings = model_output[0]
         input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
         return torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
-
 
     cdef _embed_query(self, str query):
         sentences = [f"search query: {query}"]
@@ -158,8 +167,19 @@ cdef class Engine:
         cdef bytes query_bytes = query_text.encode("utf-8")
         cdef char* c_query = query_bytes
         cdef TokenizedField tokenized_field = self.tokenizer.tokenize(c_query, len(query_text), True)
+        cdef vector[uint64_t] doc_ids_vector = vector[uint64_t]()
+        cdef uint32_t i
+        for i in range(len(doc_ids)):
+            doc_ids_vector.push_back(<uint64_t>doc_ids[i])
+        
+        cdef object doc_embeddings = self.corpus_embeddings[doc_ids]
+        cdef object query_embedding = self._embed_query(query_text)
+        cdef object similarity_scores = torch.matmul(doc_embeddings, query_embedding)
+        cdef vector[float] similarity_vector = vector[float]()
+        for i in range(similarity_scores.size(0)):
+            similarity_vector.push_back(<float>similarity_scores[i].item())
 
-        cdef vector[SearchResultPosting] c_postings = self.simulate_search_result(doc_ids, tokenized_field.tokens)
+        cdef vector[SearchResultPosting] c_postings = self.simulate_search_result(doc_ids_vector, tokenized_field.tokens, similarity_vector)
         cdef float[:, :] features = get_features(
             tokenized_field.tokens, 
             c_postings, 
@@ -172,7 +192,7 @@ cdef class Engine:
         )
         return np.matrix(features)
 
-    cdef vector[SearchResultPosting] simulate_search_result(self, list doc_ids, vector[uint64_t]& query_tokens):
+    cdef vector[SearchResultPosting] simulate_search_result(self, vector[uint64_t] doc_ids, vector[uint64_t]& query_tokens, vector[float]& similarity_scores):
         cdef vector[SearchResultPosting] result_postings = vector[SearchResultPosting]()
         cdef TokenizedDocument tokenized_doc
         cdef SearchResultPosting sr_posting
@@ -184,13 +204,14 @@ cdef class Engine:
         for i in range(query_tokens.size()):
             query_token_set.insert(query_tokens[i])
         
-        for doc_id in doc_ids:
-            tokenized_doc = self.corpus.get_tokenized_document(<uint64_t>doc_id, self.tokenizer)
-            sr_posting.doc_id = <uint32_t>doc_id
+        for i in range(doc_ids.size()):
+            tokenized_doc = self.corpus.get_tokenized_document(<uint64_t>doc_ids[i], self.tokenizer)
+            sr_posting.doc_id = <uint32_t>doc_ids[i]
 
             sr_posting.tokens = vector[uint64_t]()
             sr_posting.scores = vector[float]()
             sr_posting.total_score = 0.0
+            sr_posting.similarity_score = similarity_scores[i]
             sr_posting.snippet_position = 0
             sr_posting.field_frequencies = vector[vector[uint32_t]]()
             sr_posting.field_lengths = vector[uint32_t]()
@@ -415,9 +436,15 @@ cdef class Engine:
 
         cdef object query_embedding = self._embed_query(query)
         cdef object similarity_scores = torch.matmul(self.corpus_embeddings, query_embedding)
+        cdef vector[float] similarity_vector = vector[float]()
+        cdef uint32_t i
+        for i in range(similarity_scores.size(0)):
+            similarity_vector.push_back(<float>similarity_scores[i].item())
         cdef object top_k_results = torch.topk(similarity_scores, k=top_k)
-        cdef list top_k_indices = list(top_k_results.indices)
-        cdef vector[SearchResultPosting] sr_postings = self.simulate_search_result(top_k_indices, tokenized_query.tokens)
+        cdef vector[uint64_t] top_k_indices = vector[uint64_t]()
+        for i in range(top_k):
+            top_k_indices.push_back(<uint64_t>top_k_results.indices[i].item())
+        cdef vector[SearchResultPosting] sr_postings = self.simulate_search_result(top_k_indices, tokenized_query.tokens, similarity_vector)
         cdef vector[Document] documents = self._retrieve_documents_from_postings_with_snippets(sr_postings, vector[uint32_t](), top_k)
         for i in range(documents.size()):
             documents[i].score = top_k_results.values[<int>i].item()
@@ -436,8 +463,8 @@ cdef class Engine:
             print(f"Did you mean \033[4m{str(query_correction.first, 'utf-8')}\033[0m?")
 
         cdef QueryNode* query_tree = self.query_parser.parse(tokenized_query.tokens)
-        print("Query Tree:")
-        print_query_tree(query_tree, self.tokenizer, 0)
+        # print("- Query Tree:")
+        # print_query_tree(query_tree, self.tokenizer, 0)
 
         cdef uint32_t tier = self._min_tier_index(query_tree, pre_select_k)
 
@@ -447,8 +474,8 @@ cdef class Engine:
             results_pair = self._full_boolean_search(query_tree, min_tier=0, max_tier=tier)
             tier += 1
 
-        print(f"Gone up to tier {tier-1}")
-        print(f"Number of results: {results_pair.first.size()}")
+        print(f"- Gone up to tier {tier-1}")
+        print(f"- Number of results: {results_pair.first.size()}")
         if results_pair.first.size() <= 0:
             return results
 

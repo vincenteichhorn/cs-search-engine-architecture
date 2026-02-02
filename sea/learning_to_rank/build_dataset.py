@@ -3,13 +3,16 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, FIRST_COMPLETE
 
 import pandas as pd
 from tqdm import tqdm
+from scripts.semantic_search import MODEL_PATH
 from sea.corpus import Corpus, py_string_processor
 from sea.engine import Engine
 
-INDEX_PATH = "./data/indices/all"
+NAME = "all"
+INDEX_PATH = "./data/indices"
+EMBEDDINGS_PATH = f"./data/embeddings/"
 MAPPING_PATH = "./data/id_mapping.csv"
-DATASET_ID_PATH = "./data/dataset_7_ids.csv"
-DATASET_PATH = "./data/dataset_7_top50.csv"
+DATASET_ID_PATH = "./data/dataset_ids_top50.csv"
+DATASET_PATH = "./data/dataset_8_top50.csv"
 QUERIES_PATH = "./data/msmarco-doctrain-queries.tsv"
 TOP100_PATH = "./data/msmarco-doctrain-top100.tsv"
 QREL_PATH = "./data/msmarco-doctrain-qrels.tsv"
@@ -25,7 +28,7 @@ def is_numeric(s):
 
 
 def build_id_mapping():
-    corpus = Corpus(INDEX_PATH, "")
+    corpus = Corpus(os.path.join(INDEX_PATH, NAME), "")
 
     with open(MAPPING_PATH, "w", encoding="utf-8") as f:
         oid = -1
@@ -48,9 +51,7 @@ def build_id_dataset():
     id_mapping_df = pd.read_csv(MAPPING_PATH, header=None, names=["doc_id", "our_id"])
 
     queries_df = pd.read_csv(QUERIES_PATH, sep="\t", header=None, names=["query_id", "query_text"])
-    qrel_df = pd.read_csv(
-        QREL_PATH, sep=" ", header=None, names=["query_id", "unused", "doc_id", "label"]
-    )
+    qrel_df = pd.read_csv(QREL_PATH, sep=" ", header=None, names=["query_id", "unused", "doc_id", "label"])
     pos_df = pd.merge(queries_df, qrel_df, how="inner", on="query_id")
     pos_df = pd.merge(
         pos_df,
@@ -81,14 +82,10 @@ def build_id_dataset():
         on="query_id",
     )
 
-    pos_df = pos_df[["query_id", "query_text", "doc_id", "our_id", "rank"]].set_index(
-        ["query_id", "our_id"]
-    )
+    pos_df = pos_df[["query_id", "query_text", "doc_id", "our_id", "rank"]].set_index(["query_id", "our_id"])
     print(pos_df.head())
     print("Positive samples shape:", pos_df.shape, pos_df.columns)
-    top100_df = top100_df[["query_id", "query_text", "doc_id", "our_id", "rank"]].set_index(
-        ["query_id", "our_id"]
-    )
+    top100_df = top100_df[["query_id", "query_text", "doc_id", "our_id", "rank"]].set_index(["query_id", "our_id"])
     print(top100_df.head())
     print("Top100 samples shape:", top100_df.shape, top100_df.columns)
 
@@ -113,13 +110,12 @@ def build_id_dataset():
     df.to_csv(DATASET_ID_PATH, index=False)
 
 
-# Global engine per worker process
 _ENGINE = None
 
 
-def _init_worker(index_path: str):
+def _init_worker(name: str, index_path: str, embeddings_path: str):
     global _ENGINE
-    _ENGINE = Engine(index_path)
+    _ENGINE = Engine(name, index_path, embeddings_path, "")
 
 
 def _process_query(task):
@@ -137,9 +133,9 @@ def _process_query(task):
 
 if __name__ == "__main__":
 
-    # build_id_mapping()
+    build_id_mapping()
 
-    # build_id_dataset()
+    build_id_dataset()
 
     def _build_task_from_rows(qid, rows):
         query_text = rows[0].query_text
@@ -175,15 +171,11 @@ if __name__ == "__main__":
 
     os.makedirs(os.path.dirname(DATASET_PATH) or ".", exist_ok=True)
     with open(DATASET_PATH, "w", encoding="utf-8") as f:
-        f.write(
-            "query_id,bm25_title,bm25_body,title_length,body_length,ratio_query_in_title,ratio_query_in_body,first_occurrence_document,rank\n"
-        )
+        f.write("query_id,bm25_title,bm25_body,title_length,body_length,ratio_query_in_title,ratio_query_in_body,first_occurrence_body,similarity_score,rank\n")
 
         max_workers = 3
         max_in_flight = max_workers * 2
-        with ProcessPoolExecutor(
-            max_workers=max_workers, initializer=_init_worker, initargs=(INDEX_PATH,)
-        ) as executor:
+        with ProcessPoolExecutor(max_workers=max_workers, initializer=_init_worker, initargs=(NAME, INDEX_PATH, EMBEDDINGS_PATH)) as executor:
             future_to_qid = {}
 
             # Submit tasks lazily while keeping a bounded number of futures in-flight

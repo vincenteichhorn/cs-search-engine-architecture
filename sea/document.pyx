@@ -240,7 +240,7 @@ cdef vector[SearchResultPosting] create_search_result_postings(vector[Posting]& 
             sr_posting.char_positions[0].push_back(posting.char_positions[j])
         
         free_posting(&posting, True)
-        
+        sr_posting.similarity_score = 0.0
         result_postings.push_back(sr_posting)
     return result_postings
 
