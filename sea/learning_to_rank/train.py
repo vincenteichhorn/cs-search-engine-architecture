@@ -7,11 +7,8 @@ import torch
 import json
 import wandb
 import math
-import math
 from torch.utils.data import DataLoader
-from torch.optim.lr_scheduler import ReduceLROnPlateau, CosineAnnealingLR
 from torch.optim import AdamW
-from torch.nn.utils import clip_grad_norm_
 from tqdm import tqdm
 from sea.learning_to_rank.dataset import RankingDataset, collate_fn
 from sea.learning_to_rank.model import (
@@ -125,9 +122,8 @@ def save_model(model, config, save_dir, model_name="listnet"):
         json.dump(config, f)
 
 
-DATASET_PATH = "./data/dataset_7_top50.csv"
+DATASET_PATH = "./data/dataset_8_top50.csv"
 SAVE_DIR = "./data/models/"
-MODEL_NAME = "all_final"
 NUM_QUERIES = 10_000  # Limit number of queries for faster training during testing
 NUM_DOCS_PER_QUERY = 50
 TRAIN_RATIO = 0.8
@@ -138,7 +134,7 @@ DROPOUT = 0.1
 LEARNING_RATE = 5e-4
 EPOCHS = 3
 LOSS_FN_TEMPERATURE = 0.7
-VALIDATE_EVERY_N_STEPS = 25
+VALIDATE_EVERY_N_STEPS = 100
 
 
 if __name__ == "__main__":
@@ -163,83 +159,95 @@ if __name__ == "__main__":
     )
 
     means, stds = train_dataloader.dataset.means_and_stds()
-    config = {
-        "in_features": train_df.shape[1] - 2,  # exclude query_id and rank
-        "dropout": DROPOUT,
-        "means": means,
-        "stds": stds,
-        "learning_rate": LEARNING_RATE,
-        "temperature": LOSS_FN_TEMPERATURE,
-        "batch_size": BATCH_SIZE,
-        "epochs": EPOCHS,
-    }
-    model = ListNet(in_features=config["in_features"], dropout=config["dropout"], means=config["means"], stds=config["stds"]).to(device)
-    criterion = CrossEntropyRankLoss(temperature=config["temperature"]).to(device)
-    optimizer = AdamW(model.parameters(), lr=config["learning_rate"])
-    lr_scheduler = ReduceLROnPlateau(optimizer, mode="min", factor=0.5, patience=25)
-    save_model(model, config, SAVE_DIR, MODEL_NAME)
 
-    wandb.login()
-    wandb_run = wandb.init(project="sea-ltr", config=config)
+    learning_rates = [5e-3, 1e-3, 5e-4, 1e-4, 5e-5, 1e-5]
+    temperatures = [0.1, 0.3, 0.5, 0.7, 1.0]
+    dropouts = [0.0, 0.1, 0.2, 0.3]
 
-    pbar = tqdm(desc="Training Batches", total=len(train_dataloader) * EPOCHS, position=0)
+    # iter all hyperparameter combinations
+    combinations = [(lr, temp, drop) for lr in learning_rates for temp in temperatures for drop in dropouts]
+    for i, (lr, temp, drop) in enumerate(combinations, 1):
+        print(f"Training with learning rate: {lr}, temperature: {temp}, dropout: {drop}, config {i}/{len(combinations)}")
+        LEARNING_RATE = lr
+        LOSS_FN_TEMPERATURE = temp
+        DROPOUT = drop
 
-    global_step = 0
-    best_val_loss = float("inf")
-    for epoch in range(EPOCHS):
-        for batch in train_dataloader:
-            pbar.update(1)
-            global_step += 1
-            features, labels = batch
-            features, labels = features.to(device), labels.to(device)
+        config = {
+            "in_features": train_df.shape[1] - 2,  # exclude query_id and rank
+            "dropout": DROPOUT,
+            "means": means,
+            "stds": stds,
+            "learning_rate": LEARNING_RATE,
+            "temperature": LOSS_FN_TEMPERATURE,
+            "batch_size": BATCH_SIZE,
+            "epochs": EPOCHS,
+        }
+        model = ListNet(in_features=config["in_features"], dropout=config["dropout"], means=config["means"], stds=config["stds"]).to(device)
+        criterion = CrossEntropyRankLoss(temperature=config["temperature"]).to(device)
+        optimizer = AdamW(model.parameters(), lr=config["learning_rate"])
 
-            optimizer.zero_grad()
-            outputs = model(features)
-            loss = criterion(outputs, labels)
-            loss.backward()
-            optimizer.step()
+        wandb.login()
+        wandb_run = wandb.init(project="sea-ltr", config=config)
+        model_name = wandb_run.name
 
-            # train_ndcg_10 = ndcg_at_k(outputs.detach(), labels.detach(), k=10)
-            # train_mrr_10 = mrr_at_k(outputs.detach(), labels.detach(), k=10)
+        pbar = tqdm(desc="Training Batches", total=len(train_dataloader) * EPOCHS, position=0)
 
-            # lr_scheduler.step(loss.item())
-            actual_lr = optimizer.param_groups[0]["lr"]
+        global_step = 0
+        best_val_loss = float("inf")
+        for epoch in range(EPOCHS):
+            for batch in train_dataloader:
+                pbar.update(1)
+                global_step += 1
+                features, labels = batch
+                features, labels = features.to(device), labels.to(device)
 
-            pbar.set_postfix({"epoch": epoch + 1, "loss": loss.item()})
-            wandb_run.log(
-                {"step": global_step, "train/loss": loss.item(), "learning_rate": actual_lr}  # "train/ndcg@10": train_ndcg_10, "train/mrr@10": train_mrr_10,
-            )
+                optimizer.zero_grad()
+                outputs = model(features)
+                loss = criterion(outputs, labels)
+                loss.backward()
+                optimizer.step()
 
-            if global_step % VALIDATE_EVERY_N_STEPS == 0 or global_step == 1:
-                model.eval()
-                all_predictions = []
-                all_relevances = []
-                all_losses = []
-                with torch.no_grad():
-                    val_pbar = tqdm(desc="Validation Batches", total=len(validate_dataloader), position=1, leave=False)
-                    for val_batch in validate_dataloader:
-                        val_pbar.update(1)
-                        val_features, val_labels = val_batch
-                        val_features, val_labels = val_features.to(device), val_labels.to(device)
-                        val_outputs = model(val_features)
-                        loss = criterion(val_outputs, val_labels)
-                        all_predictions.append(val_outputs)
-                        all_relevances.append(val_labels)
-                        all_losses.append(loss.item())
-                    val_pbar.close()
-                all_predictions = torch.cat(all_predictions, dim=0)
-                all_relevances = torch.cat(all_relevances, dim=0)
-                avg_val_loss = np.mean(all_losses)
-                if avg_val_loss < best_val_loss:
-                    best_val_loss = avg_val_loss
-                    save_model(model, config, SAVE_DIR, MODEL_NAME + "_best")
+                actual_lr = optimizer.param_groups[0]["lr"]
 
-                ndcg_10 = ndcg_at_k(all_predictions, all_relevances, k=10)
-                mrr_10 = mrr_at_k(all_predictions, all_relevances, k=10)
+                pbar.set_postfix({"epoch": epoch + 1, "loss": loss.item()})
+                wandb_run.log(
+                    {
+                        "step": global_step,
+                        "train/loss": loss.item(),
+                        "learning_rate": actual_lr,
+                    }
+                )
 
-                pbar.write(f"Validation NDCG@10: {ndcg_10:.4f}/0.31, MRR@10: {mrr_10:.4f}/0.25, Loss: {avg_val_loss:.4f}")
-                wandb_run.log({"step": global_step, "valid/ndcg@10": ndcg_10, "valid/mrr@10": mrr_10, "valid/loss": avg_val_loss})
-                model.train()
+                if global_step % VALIDATE_EVERY_N_STEPS == 0 or global_step == 1:
+                    model.eval()
+                    all_predictions = []
+                    all_relevances = []
+                    all_losses = []
+                    with torch.no_grad():
+                        val_pbar = tqdm(desc="Validation Batches", total=len(validate_dataloader), position=1, leave=False)
+                        for val_batch in validate_dataloader:
+                            val_pbar.update(1)
+                            val_features, val_labels = val_batch
+                            val_features, val_labels = val_features.to(device), val_labels.to(device)
+                            val_outputs = model(val_features)
+                            loss = criterion(val_outputs, val_labels)
+                            all_predictions.append(val_outputs)
+                            all_relevances.append(val_labels)
+                            all_losses.append(loss.item())
+                        val_pbar.close()
+                    all_predictions = torch.cat(all_predictions, dim=0)
+                    all_relevances = torch.cat(all_relevances, dim=0)
+                    avg_val_loss = np.mean(all_losses)
+                    if avg_val_loss < best_val_loss:
+                        best_val_loss = avg_val_loss
+                        save_model(model, config, SAVE_DIR, model_name)
 
-    pbar.close()
-    wandb_run.finish()
+                    ndcg_10 = ndcg_at_k(all_predictions, all_relevances, k=10)
+                    mrr_10 = mrr_at_k(all_predictions, all_relevances, k=10)
+
+                    pbar.write(f"Validation NDCG@10: {ndcg_10:.4f}/0.31, MRR@10: {mrr_10:.4f}/0.25, Loss: {avg_val_loss:.4f}")
+                    wandb_run.log({"step": global_step, "valid/ndcg@10": ndcg_10, "valid/mrr@10": mrr_10, "valid/loss": avg_val_loss})
+                    model.train()
+
+        pbar.close()
+        wandb_run.finish()
