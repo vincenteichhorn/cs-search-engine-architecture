@@ -9,9 +9,9 @@ NAME = "all"
 INDEX_PATH = "./data/indices"
 EMBEDDINGS_PATH = f"./data/embeddings/"
 MODEL_PATH = "./data/models"
-DATASET = "./data/msmarco-docs.tsv"  # "./data/testing_merge.tsv"
-MAX_DOCUMENTS = 3_213_835  # 3_213_835
-PARTITION_SIZE = 50_000
+DATASET = "./data/msmarco-docs.tsv"
+MAX_DOCUMENTS = 3_213_835
+PARTITION_SIZE = 20_000
 
 
 def bold_string(s: str) -> str:
@@ -67,43 +67,70 @@ def serve():
     print(f"Loaded in {(end - start) * 1000:.4f} milliseconds.")
 
     mode = "combined"
+    ltr_enabled = True
     while True:
-        print("type 'mode:exact', 'mode:semantic', 'mode:combined' to select search mode or 'exit' to quit.")
-        query = input(f"({mode}) search: ")
+        print("type 'mode:exact', 'mode:semantic', 'mode:combined', to select search mode, 'enable:ltr', 'disable:ltr' or 'exit' to quit.")
+        query = input(
+            f"({color_string(mode, 31)}, {color_string("↓"+('ltr' if ltr_enabled else ('bm25' if mode == 'exact' else '∡')), 31)}) {bold_string(color_string('search', 31))}: "
+        )
         if query.lower() == "exit":
             break
         elif query.lower() == "mode:exact":
             mode = "exact"
-            print("Switched to exact search mode.")
+            print("- Switched to exact search mode.")
             continue
         elif query.lower() == "mode:semantic":
             mode = "semantic"
-            print("Switched to semantic search mode.")
+            print("- Switched to semantic search mode.")
             continue
         elif query.lower() == "mode:combined":
+            if not ltr_enabled:
+                ltr_enabled = True
+                print("- Enabled learning-to-rank since it is required for combined mode.")
             mode = "combined"
-            print("Switched to combined search mode.")
+            print("- Switched to combined search mode.")
+            continue
+        elif query.lower() == "enable:ltr":
+            ltr_enabled = True
+            print("- Enabled learning-to-rank.")
+            continue
+        elif query.lower() == "disable:ltr":
+            if mode == "combined":
+                mode = "exact"
+                print("- Switched to exact search mode since learning-to-rank is required for combined mode.")
+            ltr_enabled = False
+            print("- Disabled learning-to-rank.")
             continue
         elif "mode:" in query.lower():
-            print("Unknown mode. Available modes: exact, semantic, combined.")
+            print("- Unknown mode. Available modes: exact, semantic, combined.")
             continue
+        elif "enable:" in query.lower() or "disable:" in query.lower():
+            print("- Unknown option. Available options: ltr.")
+            continue
+
         start = time.time()
 
         if mode == "exact":
-            results = engine.exact_search(query, pre_select_k=50, top_k=10)
+            results, sources, semantic_scores = engine.exact_search(query, pre_select_k=50, top_k=10, ltr_enabled=ltr_enabled)
         elif mode == "semantic":
-            results = engine.semantic_search(query, top_k=10)
+            results, sources, semantic_scores = engine.semantic_search(query, top_k=10, ltr_enabled=ltr_enabled)
         elif mode == "combined":
-            results = engine.combined_search(query, exact_search_preselect_k=50, semantic_search_preselect_k=50, top_k=10)
+            results, sources, semantic_scores = engine.combined_search(query, exact_search_preselect_k=50, semantic_search_preselect_k=50, top_k=10)
         end = time.time()
         print(f"- Search took {(end - start) * 1000:.4f} milliseconds.")
         for i, doc in enumerate(results):
             print("-" * os.get_terminal_size().columns)
             print(
-                f"{bold_string('ID')}: {doc['id']}",
+                f"{bold_string('ID')}: {doc['id']}"
+                + (f" / {bold_string('Source')}: {sources[i]}" if mode == "combined" else "")
+                + (f" / {bold_string('BM25 Score')}: {doc['score']:.4f}" if mode != "semantic" else "")
+                + (
+                    f" / {bold_string('Semantic Score')}: {f'{semantic_scores[i]:.4f}' if semantic_scores[i] > 1e-3 else f'{semantic_scores[i]:2e}'}"
+                    if mode != "exact"
+                    else ""
+                ),
                 f"{bold_string('Title')}: {color_string(doc['title'], 32)}",
                 f"{bold_string('URL')}: {color_string(doc['url'], 36)}",
-                f"{bold_string('BM25 Score')}: {doc['score']:.4f}",
                 f"{bold_string('Snippet')}: {doc['snippet']}",
                 sep="\n",
                 end="\n",

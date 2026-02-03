@@ -17,8 +17,7 @@ cdef SearchResultPosting merge_postings(SearchResultPosting& posting1, SearchRes
         merged_posting.field_frequencies.push_back(posting2.field_frequencies[i])
     for i in range(posting2.char_positions.size()):
         merged_posting.char_positions.push_back(posting2.char_positions[i])
-    merged_posting.snippet_position = posting1.snippet_position
-    merged_posting.similarity_score = posting1.similarity_score
+    merged_posting.similarity_score = max(merged_posting.similarity_score, posting2.similarity_score)
     return merged_posting
 
 cdef cbool phrase_constraint(SearchResultPosting& posting1, SearchResultPosting& posting2, uint32_t k) noexcept nogil:

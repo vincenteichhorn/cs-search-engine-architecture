@@ -24,8 +24,9 @@ from libcpp.unordered_set cimport unordered_set
 from transformers import AutoTokenizer, AutoModel
 import torch.nn.functional as F
 
+
 cdef str TIER_PREFIX = "tier_"
-cdef size_t SNIPPET_RADIUS = 150
+cdef size_t SNIPPET_RADIUS = 200
 cdef uint32_t SPELLING_FREQUENCY_THRESHOLD = 100
 cdef uint32_t NUM_TOTAL_DOCS = 3_213_835
 cdef list BM25_FIELD_BOOSTS = [1.0, 0.5]
@@ -38,6 +39,9 @@ ctypedef char* CharPtr
 
 cdef bint compare_postings_scores(SearchResultPosting& a, SearchResultPosting& b) noexcept nogil:
     return a.total_score > b.total_score
+
+cdef bint compare_postings_doc_ids(SearchResultPosting& a, SearchResultPosting& b) noexcept nogil:
+    return a.doc_id < b.doc_id
 
 cdef class Engine:
 
@@ -62,6 +66,7 @@ cdef class Engine:
     cdef vector[float] average_field_lengths
     cdef float bm25_k
     cdef vector[float] bm25_bs
+    cdef vector[float] bm25_field_boosts
 
     cdef str device
     cdef object ltr_model
@@ -106,6 +111,9 @@ cdef class Engine:
         self.bm25_bs = vector[float]()
         for b in BM25_BS:
             self.bm25_bs.push_back(b)
+        self.bm25_field_boosts = vector[float]()
+        for boost in BM25_FIELD_BOOSTS:
+            self.bm25_field_boosts.push_back(boost)
         
         self.tokenizer.py_tokenize(b"and or not ( ) \"", True)  # Preload special tokens into vocabulary
         self.and_operator=self.tokenizer.py_vocab_lookup(b"and")
@@ -191,6 +199,23 @@ cdef class Engine:
             self.bm25_bs
         )
         return np.matrix(features)
+    
+    cdef vector[float] _on_the_fly_bm25(self, vector[uint64_t]& query_tokens, vector[SearchResultPosting]& postings, size_t top_k):
+        cdef float[:, :] features = get_features(
+            query_tokens, 
+            postings, 
+            top_k, 
+            self.global_document_frequencies, 
+            self.num_total_docs, 
+            self.average_field_lengths, 
+            self.bm25_k, 
+            self.bm25_bs
+        )
+        cdef vector[float] bm25_scores = vector[float]()
+        cdef uint32_t i
+        for i in range(postings.size()):
+            bm25_scores.push_back(features[i, 0] * self.bm25_field_boosts[0] + features[i, 1] * self.bm25_field_boosts[1])
+        return bm25_scores
 
     cdef vector[SearchResultPosting] simulate_search_result(self, vector[uint64_t] doc_ids, vector[uint64_t]& query_tokens, vector[float]& similarity_scores):
         cdef vector[SearchResultPosting] result_postings = vector[SearchResultPosting]()
@@ -212,7 +237,7 @@ cdef class Engine:
             sr_posting.scores = vector[float]()
             sr_posting.total_score = 0.0
             sr_posting.similarity_score = similarity_scores[i]
-            sr_posting.snippet_position = 0
+            sr_posting.snippet_position = UINT32_MAX
             sr_posting.field_frequencies = vector[vector[uint32_t]]()
             sr_posting.field_lengths = vector[uint32_t]()
             sr_posting.char_positions = vector[vector[uint32_t]]()
@@ -239,6 +264,10 @@ cdef class Engine:
 
             result_postings.push_back(sr_posting)
             free_tokenized_document(&tokenized_doc)
+        
+        cdef vector[float] bm25_scores = self._on_the_fly_bm25(query_tokens, result_postings, doc_ids.size())
+        for i in range(result_postings.size()):
+            result_postings[i].total_score = bm25_scores[i]
 
         return result_postings
     
@@ -290,14 +319,15 @@ cdef class Engine:
     
     cdef pair[CharPtr, uint32_t] _get_snippet(self, Document doc, SearchResultPosting posting):
 
+
         cdef size_t snippet_length = SNIPPET_RADIUS
         cdef uint32_t l
-        cdef uint32_t position = doc.title_length + snippet_length // 2
-        if posting.char_positions.size() != 0:
-            l = posting.char_positions.size() - 1
-            position = posting.char_positions[l][0] - doc.title_length if posting.char_positions[l].size() > 0 else 0
-        if posting.snippet_position != 0:
-            position = posting.snippet_position - doc.title_length
+        cdef uint32_t position = posting.snippet_position
+        # if posting.char_positions.size() != 0:
+        #     l = posting.char_positions.size() - 1
+        #     position = posting.char_positions[l][0] - doc.title_length if posting.char_positions[l].size() > 0 else 0
+        if posting.snippet_position != UINT32_MAX:
+            position = doc.title_length + snippet_length
         if position >= doc.body_length:
             position = doc.body_length // 2
         cdef size_t start_pos = position - snippet_length // 2 if position >= snippet_length // 2 else 0
@@ -452,8 +482,7 @@ cdef class Engine:
             print(f"- Number of results: {results_pair.first.size()}")
         return results_pair.first
     
-    cdef vector[SearchResultPosting] _semantic_search_postings(self, str query, size_t top_k):
-        cdef TokenizedField tokenized_query = self._tokenize_query(query)
+    cdef vector[SearchResultPosting] _semantic_search_postings(self, str query, TokenizedField tokenized_query, size_t top_k):
         cdef object query_embedding = self._embed_query(query)
         cdef object similarity_scores = torch.matmul(self.corpus_embeddings, query_embedding)
         cdef object top_k_results = torch.topk(similarity_scores, k=top_k)
@@ -462,21 +491,27 @@ cdef class Engine:
         cdef uint32_t i
         for i in range(top_k):
             top_k_indices.push_back(<uint64_t>top_k_results.indices[i].item())
-            similarity_vector.push_back(<float>similarity_scores[i].item())
+            similarity_vector.push_back(<float>similarity_scores[top_k_results.indices[i]].item())
         return self.simulate_search_result(top_k_indices, tokenized_query.tokens, similarity_vector)
 
-    cpdef list semantic_search(self, str query, size_t top_k):
-        cdef vector[SearchResultPosting] sr_postings = self._semantic_search_postings(query, top_k)
+    cpdef object semantic_search(self, str query, size_t top_k, bint ltr_enabled):
+        cdef TokenizedField tokenized_query = self._tokenize_query(query)
+        cdef vector[SearchResultPosting] sr_postings = self._semantic_search_postings(query, tokenized_query, top_k)
         if sr_postings.size() <= 0:
             return []
 
-        cdef vector[Document] documents = self._retrieve_documents_from_postings_with_snippets(sr_postings, vector[uint32_t](), top_k)
-        for i in range(documents.size()):
-            documents[i].score = sr_postings[i].similarity_score
-        return [doc_to_dict(documents[i]) for i in range(min(top_k, sr_postings.size()))]
+        cdef vector[uint32_t] ranking_indices = vector[uint32_t]()
+        if ltr_enabled:
+            ranking_indices = self._rank_documents(tokenized_query.tokens, sr_postings, top_k)
+        
+        cdef vector[Document] documents = self._retrieve_documents_from_postings_with_snippets(sr_postings, ranking_indices, top_k)
+        cdef list result = [doc_to_dict(documents[i]) for i in range(min(top_k, sr_postings.size()))]
+        cdef list semantic_scores = [sr_postings[i if not ltr_enabled else ranking_indices[i]].similarity_score for i in range(min(top_k, sr_postings.size()))]
+        
+        return result, ["semantic" for i in range(min(top_k, sr_postings.size()))], semantic_scores
         
         
-    cpdef list exact_search(self, str query, size_t pre_select_k, size_t top_k):
+    cpdef object exact_search(self, str query, size_t pre_select_k, size_t top_k, bint ltr_enabled):
 
         cdef TokenizedField tokenized_query = self._tokenize_query(query)
         cdef QueryNode* query_tree = self.query_parser.parse(tokenized_query.tokens)
@@ -487,38 +522,61 @@ cdef class Engine:
             return []
 
         sort(results_postings.begin(), results_postings.end(), compare_postings_scores)
-        cdef vector[uint32_t] ranking_indices = self._rank_documents(tokenized_query.tokens, results_postings, pre_select_k)
+        cdef vector[uint32_t] ranking_indices = vector[uint32_t]()
+        if ltr_enabled:
+            ranking_indices = self._rank_documents(tokenized_query.tokens, results_postings, pre_select_k)
         cdef vector[Document] documents = self._retrieve_documents_from_postings_with_snippets(results_postings, ranking_indices, top_k)
 
-        return [doc_to_dict(documents[i]) for i in range(min(top_k, results_postings.size()))]
+        cdef list results = [doc_to_dict(documents[i]) for i in range(min(top_k, results_postings.size()))]
+        cdef list sources = ["exact" for i in range(min(top_k, results_postings.size()))]
+        cdef list semantic_scores = [0 for i in range(min(top_k, results_postings.size()))]
+        return results, sources, semantic_scores
 
-    cpdef list combined_search(self, str query, size_t exact_search_preselect_k, size_t semantic_search_preselect_k, size_t top_k):
+    cpdef object combined_search(self, str query, size_t exact_search_preselect_k, size_t semantic_search_preselect_k, size_t top_k):
 
         cdef TokenizedField tokenized_query = self._tokenize_query(query)
         cdef QueryNode* query_tree = self.query_parser.parse(tokenized_query.tokens)
         self._print_query_correction(tokenized_query.tokens)
 
         cdef vector[SearchResultPosting] exact_postings = self._exact_search_postings(query_tree, exact_search_preselect_k, verbose=False)
-        cdef vector[SearchResultPosting] semantic_postings = self._semantic_search_postings(query, semantic_search_preselect_k)
+        cdef vector[SearchResultPosting] semantic_postings = self._semantic_search_postings(query, tokenized_query, semantic_search_preselect_k)
 
         sort(exact_postings.begin(), exact_postings.end(), compare_postings_scores)
 
         cdef vector[SearchResultPosting] postings = vector[SearchResultPosting]()
-        cdef uint32_t i
+        cdef size_t i
+        cdef unordered_set[uint64_t] exact_doc_ids = unordered_set[uint64_t]()
         for i in range(min(exact_postings.size(), exact_search_preselect_k)):
             postings.push_back(exact_postings[i])
+            exact_doc_ids.insert(<uint64_t>exact_postings[i].doc_id)
+        
+        sort(postings.begin(), postings.end(), compare_postings_doc_ids)
+        sort(semantic_postings.begin(), semantic_postings.end(), compare_postings_doc_ids)
+
+        cdef unordered_set[uint64_t] semantic_doc_ids = unordered_set[uint64_t]()
+        for i in range(semantic_postings.size()):
+            semantic_doc_ids.insert(<uint64_t>semantic_postings[i].doc_id)
+            print(f"semantic score for doc {semantic_postings[i].doc_id}: {semantic_postings[i].similarity_score}")
         
         union(postings, semantic_postings)
 
-        cdef unordered_set[uint32_t] semantic_idxs = unordered_set[uint32_t]()
-        for i in range(semantic_postings.size()):
-            if postings[i].similarity_score > -1.0:
-                semantic_idxs.insert(i)
-
         cdef vector[uint32_t] ranking_indices = self._rank_documents(tokenized_query.tokens, postings, postings.size())
         cdef vector[Document] documents = self._retrieve_documents_from_postings_with_snippets(postings, ranking_indices, top_k)
+
+        cdef list sources = []
+        cdef list result = []
+        cdef list semantic_scores = []
+        for i in range(min(top_k, postings.size())):
+            if exact_doc_ids.find(<uint64_t>documents[i].id) != exact_doc_ids.end() and semantic_doc_ids.find(<uint64_t>documents[i].id) != semantic_doc_ids.end():
+                sources.append("exact & semantic")
+            elif exact_doc_ids.find(<uint64_t>documents[i].id) != exact_doc_ids.end():
+                sources.append("exact")
+            else:
+                sources.append("semantic")
+            result.append(doc_to_dict(documents[i]))
+            semantic_scores.append(postings[ranking_indices[i]].similarity_score)
         
-        return [doc_to_dict(documents[i]) for i in range(min(top_k, postings.size()))] 
+        return result, sources, semantic_scores
 
         
     
