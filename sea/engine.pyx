@@ -556,7 +556,6 @@ cdef class Engine:
         cdef unordered_set[uint64_t] semantic_doc_ids = unordered_set[uint64_t]()
         for i in range(semantic_postings.size()):
             semantic_doc_ids.insert(<uint64_t>semantic_postings[i].doc_id)
-            print(f"semantic score for doc {semantic_postings[i].doc_id}: {semantic_postings[i].similarity_score}")
         
         union(postings, semantic_postings)
 
