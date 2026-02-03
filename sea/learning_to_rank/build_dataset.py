@@ -173,7 +173,7 @@ if __name__ == "__main__":
     with open(DATASET_PATH, "w", encoding="utf-8") as f:
         f.write("query_id,bm25_title,bm25_body,title_length,body_length,ratio_query_in_title,ratio_query_in_body,first_occurrence_body,similarity_score,rank\n")
 
-        max_workers = 4
+        max_workers = 3
         max_in_flight = max_workers * 2
         with ProcessPoolExecutor(max_workers=max_workers, initializer=_init_worker, initargs=(NAME, INDEX_PATH, EMBEDDINGS_PATH)) as executor:
             future_to_qid = {}

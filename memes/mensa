@@ -1,0 +1,35 @@
+[1;36m(sea-py3.12) vincent@vincent-hp:~/Documents/HPI/Master/SEA/cs-search-engine-architecture$ python3 -m sea.main[0m
+Building extensions: ['sea.util.fast_stemmer', 'sea.posting_list', 'sea.tokenizer', 'sea.document', 'sea.corpus', 'sea.engine', 'sea.spelling_corrector', 'sea.indexer', 'sea.query', 'sea.learning_to_rank.feature_mapping', 'sea.util.disk_array', 'sea.util.memory']
+running build_ext
+[1;32mLoading...[0m
+[1;32mLoaded in 46159.3399 milliseconds.[0m
+[1;34m======================================================================================================================================================================================[0m
+[1;37mSearch: [0m [1;33mWann mensa?[0m
+[1;32m- Gone up to tier 4[0m
+[1;32m- Number of results: 420[0m
+[1;32m- Search took 67.2026 milliseconds.[0m
+[1;34m--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------[0m
+[1;37mID:[0m 1495029
+[1;37mTitle:[0m [1;33mDie Beste Zeit für die Mensa: Zwölf Uhr Zwanzig[0m
+[1;37mURL:[0m [4;34mhttps://www.mensa.org/workout[0m
+[1;37mBM25 Score:[0m [1;32m42[0m
+[1;37mSnippet:[0m Schwedische Studie hat ergeben, dass die beste Zeit für die Mensa genau 12:20 Uhr ist. Zu diesem Zeitpunkt sind die wenigsten Leute in der Mensa (cap)
+[1;34m--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------[0m
+[1;37mID:[0m 2147231
+[1;37mTitle:[0m [1;33mBreaking News: 10 Minuten vor Halb Eins schmeckts am Besten[0m
+[1;37mURL:[0m [4;34mhttp://www.new-york-times.de/essen-in-der-mensa/[0m
+[1;37mBM25 Score:[0m [1;32m69[0m
+[1;37mSnippet:[0m Nudeln mit Tomatensauce oder Currywurst mit Pommes? Eine Studenten an der Universität Stockholm hat herausgefunden
+[1;34m--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------[0m
+[1;37mID:[0m 923833
+[1;37mTitle:[0m [1;33m11:80 Uhr in der Mensa - Beste Zeit zum Essen[0m
+[1;37mURL:[0m [4;34mhttps://www.sz.de/mensa[0m
+[1;37mBM25 Score:[0m [1;32m17[0m
+[1;37mSnippet:[0m Die beste Zeit zum Essen in der Mensa ist 11:80 Uhr. Das liegt daran, dass ich Hunger habe.
+[1;34m--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------[0m
+[1;37mID:[0m 2750485
+[1;37mTitle:[0m [1;33mDie zweite Mittagspause ist für Genießer[0m
+[1;37mURL:[0m [4;34mhttps://www.mensa.de/mensa-zweitmittagspause[0m
+[1;37mBM25 Score:[0m [1;32m15[0m
+[1;37mSnippet:[0m Drinking Water, but putting it through the yum yum machine first. Die Mensa Zweitmittagspause ist für Genießer
+[1;34m--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------[0m

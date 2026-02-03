@@ -4,10 +4,10 @@ import importlib
 
 SETUP_COMMAND = "poetry run python3 setup.py build_ext"
 MODULE_NAME = "sea"
-# LIB = "../build/lib.linux-x86_64-cpython-312"
-LIB = "../build/lib.linux-x86_64-cpython-313"
-# FILE_EXT = ".cpython-312-x86_64-linux-gnu.so"
-FILE_EXT = ".cpython-313-x86_64-linux-gnu.so"
+LIB = "../build/lib.linux-x86_64-cpython-312"
+# LIB = "../build/lib.linux-x86_64-cpython-313"
+FILE_EXT = ".cpython-312-x86_64-linux-gnu.so"
+# FILE_EXT = ".cpython-313-x86_64-linux-gnu.so"
 MODULES = [
     "util.memory",
     "util.fast_stemmer",

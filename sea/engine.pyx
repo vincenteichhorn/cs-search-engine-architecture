@@ -428,12 +428,32 @@ cdef class Engine:
             ranked_documents.push_back(ranked_document_indices[i])
         return ranked_documents
 
-    cpdef list semantic_search(self, str query, size_t top_k):
-
+    cdef TokenizedField _tokenize_query(self, str query):
         cdef bytes query_bytes = query.lower().encode("utf-8")
         cdef const char* query_c = query_bytes
         cdef TokenizedField tokenized_query = self.tokenizer.tokenize(query_c, len(query_bytes), True)
+        return tokenized_query
 
+    cdef void _print_query_correction(self, vector[uint64_t] query_tokens):
+        cdef pair[CharPtr, uint32_t] query_correction = self.spelling_corrector.get_top_correction(query_tokens, min_similarity=0.75)
+        if query_correction.second > 0:
+            print(f"Did you mean \033[4m{str(query_correction.first, 'utf-8')}\033[0m?")
+
+    cdef vector[SearchResultPosting] _exact_search_postings(self, QueryNode* query_tree, size_t min_k, bint verbose):
+
+        cdef uint32_t tier = self._min_tier_index(query_tree, min_k)
+        cdef pair[vector[SearchResultPosting], bint] results_pair = pair[vector[SearchResultPosting], bint](vector[SearchResultPosting](), False)
+        while results_pair.first.size() < min_k and tier < self.num_tiers:
+            results_pair = self._full_boolean_search(query_tree, min_tier=0, max_tier=tier)
+            tier += 1
+
+        if verbose:
+            print(f"- Gone up to tier {tier-1}")
+            print(f"- Number of results: {results_pair.first.size()}")
+        return results_pair.first
+    
+    cdef vector[SearchResultPosting] _semantic_search_postings(self, str query, size_t top_k):
+        cdef TokenizedField tokenized_query = self._tokenize_query(query)
         cdef object query_embedding = self._embed_query(query)
         cdef object similarity_scores = torch.matmul(self.corpus_embeddings, query_embedding)
         cdef vector[float] similarity_vector = vector[float]()
@@ -444,44 +464,61 @@ cdef class Engine:
         cdef vector[uint64_t] top_k_indices = vector[uint64_t]()
         for i in range(top_k):
             top_k_indices.push_back(<uint64_t>top_k_results.indices[i].item())
-        cdef vector[SearchResultPosting] sr_postings = self.simulate_search_result(top_k_indices, tokenized_query.tokens, similarity_vector)
+        return self.simulate_search_result(top_k_indices, tokenized_query.tokens, similarity_vector)
+
+    cpdef list semantic_search(self, str query, size_t top_k):
+        cdef vector[SearchResultPosting] sr_postings = self._semantic_search_postings(query, top_k)
+        if sr_postings.size() <= 0:
+            return []
+
         cdef vector[Document] documents = self._retrieve_documents_from_postings_with_snippets(sr_postings, vector[uint32_t](), top_k)
         for i in range(documents.size()):
-            documents[i].score = top_k_results.values[<int>i].item()
-        cdef list results = [doc_to_dict(documents[i]) for i in range(min(top_k, sr_postings.size()))]
-        return results
+            documents[i].score = sr_postings[i].similarity_score
+        return [doc_to_dict(documents[i]) for i in range(min(top_k, sr_postings.size()))]
         
         
-    cpdef list search(self, str query, size_t pre_select_k, size_t top_k):
+    cpdef list exact_search(self, str query, size_t pre_select_k, size_t top_k):
 
-        cdef bytes query_bytes = query.lower().encode("utf-8")
-        cdef const char* query_c = query_bytes
-        cdef TokenizedField tokenized_query = self.tokenizer.tokenize(query_c, len(query_bytes), True)
-
-        cdef pair[CharPtr, uint32_t] query_correction = self.spelling_corrector.get_top_correction(tokenized_query.tokens, min_similarity=0.75)
-        if query_correction.second > 0:
-            print(f"Did you mean \033[4m{str(query_correction.first, 'utf-8')}\033[0m?")
-
+        cdef TokenizedField tokenized_query = self._tokenize_query(query)
         cdef QueryNode* query_tree = self.query_parser.parse(tokenized_query.tokens)
-        # print("- Query Tree:")
-        # print_query_tree(query_tree, self.tokenizer, 0)
+        self._print_query_correction(tokenized_query.tokens)
 
-        cdef uint32_t tier = self._min_tier_index(query_tree, pre_select_k)
+        cdef vector[SearchResultPosting] results_postings = self._exact_search_postings(query_tree, pre_select_k, verbose=True)
+        if results_postings.size() <= 0:
+            return []
 
-        cdef list results = []
-        cdef pair[vector[SearchResultPosting], bint] results_pair = pair[vector[SearchResultPosting], bint](vector[SearchResultPosting](), False)
-        while results_pair.first.size() < pre_select_k and tier < self.num_tiers:
-            results_pair = self._full_boolean_search(query_tree, min_tier=0, max_tier=tier)
-            tier += 1
+        sort(results_postings.begin(), results_postings.end(), compare_postings_scores)
+        cdef vector[uint32_t] ranking_indices = self._rank_documents(tokenized_query.tokens, results_postings, pre_select_k)
+        cdef vector[Document] documents = self._retrieve_documents_from_postings_with_snippets(results_postings, ranking_indices, top_k)
 
-        print(f"- Gone up to tier {tier-1}")
-        print(f"- Number of results: {results_pair.first.size()}")
-        if results_pair.first.size() <= 0:
-            return results
+        return [doc_to_dict(documents[i]) for i in range(min(top_k, results_postings.size()))]
 
-        sort(results_pair.first.begin(), results_pair.first.end(), compare_postings_scores)
-        cdef vector[uint32_t] ranking_indices = self._rank_documents(tokenized_query.tokens, results_pair.first, pre_select_k)
-        cdef vector[Document] documents = self._retrieve_documents_from_postings_with_snippets(results_pair.first, ranking_indices, top_k)
-        results = [doc_to_dict(documents[i]) for i in range(min(top_k, results_pair.first.size()))]
+    cpdef list combined_search(self, str query, size_t exact_search_preselect_k, size_t semantic_search_preselect_k, size_t top_k):
 
-        return results
+        cdef TokenizedField tokenized_query = self._tokenize_query(query)
+        cdef QueryNode* query_tree = self.query_parser.parse(tokenized_query.tokens)
+        self._print_query_correction(tokenized_query.tokens)
+
+        cdef vector[SearchResultPosting] exact_postings = self._exact_search_postings(query_tree, exact_search_preselect_k, verbose=False)
+        cdef vector[SearchResultPosting] semantic_postings = self._semantic_search_postings(query, semantic_search_preselect_k)
+
+        sort(exact_postings.begin(), exact_postings.end(), compare_postings_scores)
+
+        cdef vector[SearchResultPosting] postings = vector[SearchResultPosting]()
+        cdef uint32_t i
+        for i in range(min(exact_postings.size(), exact_search_preselect_k)):
+            postings.push_back(exact_postings[i])
+        
+        union(postings, semantic_postings)
+
+        cdef vector[uint32_t] ranking_indices = self._rank_documents(tokenized_query.tokens, postings, postings.size())
+        cdef vector[Document] documents = self._retrieve_documents_from_postings_with_snippets(postings, ranking_indices, top_k)
+        
+        for i in range(documents.size()):
+            if documents[i].score == 0.0:
+                documents[i].score = postings[ranking_indices[i]].similarity_score
+
+        return [doc_to_dict(documents[i]) for i in range(min(top_k, postings.size()))]
+
+        
+    

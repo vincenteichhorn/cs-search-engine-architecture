@@ -22,6 +22,29 @@ def underline_string(s: str) -> str:
     return f"\033[4m{s}\033[0m"
 
 
+def color_string(s: str, color_code: int) -> str:
+    """
+    Color codes:
+    Black: 30
+    Red: 31
+    Green: 32
+    Yellow: 33
+    Blue: 34
+    Magenta: 35
+    Cyan: 36
+    White: 37
+    Bright Black: 90
+    Bright Red: 91
+    Bright Green: 92
+    Bright Yellow: 93
+    Bright Blue: 94
+    Bright Magenta: 95
+    Bright Cyan: 96
+    Bright White: 97
+    """
+    return f"\033[{color_code}m{s}\033[0m"
+
+
 def index():
 
     inp = input(f"Do you really want to (re)build the index at {INDEX_PATH}? This will delete any existing index. (y/n): ")
@@ -43,20 +66,40 @@ def serve():
     end = time.time()
     print(f"Loaded in {(end - start) * 1000:.4f} milliseconds.")
 
+    mode = "exact"
     while True:
         print("=" * os.get_terminal_size().columns)
+        print("type 'mode:exact', 'mode:semantic', 'mode:combined' to select search mode or 'exit' to quit.")
         query = input("Search: ")
+        if query.lower() == "exit":
+            break
+        elif query.lower() == "mode:exact":
+            mode = "exact"
+            print("Switched to exact search mode.")
+            continue
+        elif query.lower() == "mode:semantic":
+            mode = "semantic"
+            print("Switched to semantic search mode.")
+            continue
+        elif query.lower() == "mode:combined":
+            mode = "combined"
+            print("Switched to combined search mode.")
+            continue
         start = time.time()
-        # results = engine.semantic_search(query, top_k=10)
-        results = engine.search(query, pre_select_k=100, top_k=10)
+        if mode == "exact":
+            results = engine.exact_search(query, pre_select_k=100, top_k=10)
+        elif mode == "semantic":
+            results = engine.semantic_search(query, top_k=10)
+        elif mode == "combined":
+            results = engine.combined_search(query, exact_search_preselect_k=100, semantic_search_preselect_k=100, top_k=10)
         end = time.time()
         print(f"- Search took {(end - start) * 1000:.4f} milliseconds.")
         for doc in results:
             print("-" * os.get_terminal_size().columns)
             print(
                 f"{bold_string('ID')}: {doc['id']}",
-                f"{bold_string('Title')}: {doc['title']}",
-                f"{bold_string('URL')}: {doc['url']}",
+                f"{bold_string('Title')}: {color_string(doc['title'], 32)}",
+                f"{bold_string('URL')}: {color_string(doc['url'], 36)}",
                 f"{bold_string('BM25 Score')}: {doc['score']:.4f}",
                 f"{bold_string('Snippet')}: {doc['snippet']}",
                 sep="\n",
@@ -65,7 +108,7 @@ def serve():
 
 
 def main():
-    index()
+    # index()
     serve()
 
 
