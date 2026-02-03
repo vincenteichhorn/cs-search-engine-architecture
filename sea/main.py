@@ -66,11 +66,10 @@ def serve():
     end = time.time()
     print(f"Loaded in {(end - start) * 1000:.4f} milliseconds.")
 
-    mode = "exact"
+    mode = "combined"
     while True:
-        print("=" * os.get_terminal_size().columns)
         print("type 'mode:exact', 'mode:semantic', 'mode:combined' to select search mode or 'exit' to quit.")
-        query = input("Search: ")
+        query = input(f"({mode}) search: ")
         if query.lower() == "exit":
             break
         elif query.lower() == "mode:exact":
@@ -85,16 +84,20 @@ def serve():
             mode = "combined"
             print("Switched to combined search mode.")
             continue
+        elif "mode:" in query.lower():
+            print("Unknown mode. Available modes: exact, semantic, combined.")
+            continue
         start = time.time()
+
         if mode == "exact":
-            results = engine.exact_search(query, pre_select_k=100, top_k=10)
+            results = engine.exact_search(query, pre_select_k=50, top_k=10)
         elif mode == "semantic":
             results = engine.semantic_search(query, top_k=10)
         elif mode == "combined":
-            results = engine.combined_search(query, exact_search_preselect_k=100, semantic_search_preselect_k=100, top_k=10)
+            results = engine.combined_search(query, exact_search_preselect_k=50, semantic_search_preselect_k=50, top_k=10)
         end = time.time()
         print(f"- Search took {(end - start) * 1000:.4f} milliseconds.")
-        for doc in results:
+        for i, doc in enumerate(results):
             print("-" * os.get_terminal_size().columns)
             print(
                 f"{bold_string('ID')}: {doc['id']}",
@@ -105,6 +108,7 @@ def serve():
                 sep="\n",
                 end="\n",
             )
+        print("=" * os.get_terminal_size().columns)
 
 
 def main():

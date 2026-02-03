@@ -21,10 +21,7 @@ lib_stemmer_sources += glob.glob("vendor/libstemmer_c/src_c/stem_UTF_8_*.c")
 extensions = []
 extensions.append(
     Extension(
-        ".".join(
-            fast_stemmer_path.split(os.sep)[:-1]
-            + [os.path.splitext(os.path.basename(fast_stemmer_path))[0]]
-        ),
+        ".".join(fast_stemmer_path.split(os.sep)[:-1] + [os.path.splitext(os.path.basename(fast_stemmer_path))[0]]),
         [fast_stemmer_path] + lib_stemmer_sources,
         include_dirs=[
             "vendor/libstemmer_c/include",
@@ -49,7 +46,7 @@ extensions.extend(
         if not "stemmer" in f
     ]
 )
-print("Building extensions:", [ext.name for ext in extensions])
+# print("Building extensions:", [ext.name for ext in extensions])
 
 setup(
     name="sea",

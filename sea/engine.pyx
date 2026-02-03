@@ -456,14 +456,13 @@ cdef class Engine:
         cdef TokenizedField tokenized_query = self._tokenize_query(query)
         cdef object query_embedding = self._embed_query(query)
         cdef object similarity_scores = torch.matmul(self.corpus_embeddings, query_embedding)
-        cdef vector[float] similarity_vector = vector[float]()
-        cdef uint32_t i
-        for i in range(similarity_scores.size(0)):
-            similarity_vector.push_back(<float>similarity_scores[i].item())
         cdef object top_k_results = torch.topk(similarity_scores, k=top_k)
         cdef vector[uint64_t] top_k_indices = vector[uint64_t]()
+        cdef vector[float] similarity_vector = vector[float]()
+        cdef uint32_t i
         for i in range(top_k):
             top_k_indices.push_back(<uint64_t>top_k_results.indices[i].item())
+            similarity_vector.push_back(<float>similarity_scores[i].item())
         return self.simulate_search_result(top_k_indices, tokenized_query.tokens, similarity_vector)
 
     cpdef list semantic_search(self, str query, size_t top_k):
@@ -511,14 +510,15 @@ cdef class Engine:
         
         union(postings, semantic_postings)
 
+        cdef unordered_set[uint32_t] semantic_idxs = unordered_set[uint32_t]()
+        for i in range(semantic_postings.size()):
+            if postings[i].similarity_score > -1.0:
+                semantic_idxs.insert(i)
+
         cdef vector[uint32_t] ranking_indices = self._rank_documents(tokenized_query.tokens, postings, postings.size())
         cdef vector[Document] documents = self._retrieve_documents_from_postings_with_snippets(postings, ranking_indices, top_k)
         
-        for i in range(documents.size()):
-            if documents[i].score == 0.0:
-                documents[i].score = postings[ranking_indices[i]].similarity_score
-
-        return [doc_to_dict(documents[i]) for i in range(min(top_k, postings.size()))]
+        return [doc_to_dict(documents[i]) for i in range(min(top_k, postings.size()))] 
 
         
     
