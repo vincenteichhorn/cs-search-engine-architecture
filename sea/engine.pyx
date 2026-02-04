@@ -1,29 +1,27 @@
-from sea.corpus cimport Corpus, doc_to_dict
-from sea.tokenizer cimport Tokenizer, TokenizedField
-from sea.document cimport Document, Posting, TokenizedDocument, SearchResultPosting, deserialize_postings, deserialize_search_result_postings, free_posting, free_tokenized_document_with_postings, free_tokenized_document, get_posting_list_length, create_search_result_postings
-from sea.posting_list cimport intersection, intersection_phrase, union, difference
-from sea.query cimport QueryParser, QueryNode, print_query_tree
-from sea.util.disk_array cimport DiskArray, EntryInfo, DiskArrayIterator
+import os
+import json
+import torch
+import numpy as np
 from libcpp.vector cimport vector
 from libc.stdint cimport uint64_t, uint32_t
-import os
 from libc.stdlib cimport malloc
 from libcpp.utility cimport pair
 from sea.spelling_corrector cimport SpellingCorrector
 from libcpp.unordered_map cimport unordered_map
-import json
-from sea.learning_to_rank.model import ListNet
-import torch
 from libcpp.algorithm cimport sort
-from sea.learning_to_rank.feature_mapping cimport get_features
-from cpython.unicode cimport PyUnicode_DecodeUTF8
 from cython.cimports.libc.stdint cimport UINT32_MAX
-from libc.time cimport clock, CLOCKS_PER_SEC, clock_t
-import numpy as np
 from libcpp.unordered_set cimport unordered_set
 from transformers import AutoTokenizer, AutoModel
 import torch.nn.functional as F
 
+from sea.corpus cimport Corpus, doc_to_dict
+from sea.tokenizer cimport Tokenizer, TokenizedField
+from sea.document cimport Document, Posting, TokenizedDocument, SearchResultPosting, deserialize_search_result_postings, free_posting, free_tokenized_document, get_posting_list_length
+from sea.posting_list cimport intersection, intersection_phrase, union, difference
+from sea.query cimport QueryParser, QueryNode, print_query_tree
+from sea.util.disk_array cimport DiskArray, EntryInfo, DiskArrayIterator
+from sea.learning_to_rank.model import ListNet
+from sea.learning_to_rank.feature_mapping cimport get_features
 
 cdef str TIER_PREFIX = "tier_"
 cdef size_t SNIPPET_RADIUS = 200
