@@ -24,7 +24,7 @@ cdef list BM25_BS = [0.75, 0.75]
 cdef float BM25_K = 1.5
 
 cdef int NUM_TIERS = 6
-cdef list TIER_THRESHOLDS = [25.0, 20.0, 15.0, 10.0, 5.0, 0.0]
+cdef list TIER_THRESHOLDS = [20.0, 15.0, 10.0, 5.0, 2.5, 0.0]
 
 ctypedef Posting* PostingPtr
 
@@ -57,7 +57,7 @@ cdef class Indexer:
     cdef str save_path
     cdef uint64_t max_documents
     cdef uint32_t partition_size
-    cdef uint32_t next_partition_id
+    cdef public uint32_t next_partition_id
 
     cdef Tokenizer tokenizer
     cdef Corpus corpus
@@ -96,7 +96,6 @@ cdef class Indexer:
         self.tokenizer = Tokenizer(save_path)
         self.corpus = Corpus(save_path, dataset)
 
-        
         self.postings_buffer = vector[Posting]()
         self.free_me_later_pls = vector[BytePtr]()
         self.inverted_index = unordered_map[uint32_t, vector[uint32_t]]()

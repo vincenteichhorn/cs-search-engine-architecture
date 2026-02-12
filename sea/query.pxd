@@ -7,6 +7,7 @@ from sea.tokenizer cimport Tokenizer
 cdef cppclass QueryNode:
     QueryNode* left
     QueryNode* right
+    uint32_t id
     vector[uint64_t] values
 
 ctypedef QueryNode* QueryNodePtr

@@ -58,3 +58,5 @@ To run the main application, use:
 7. First Occurrence Title / Normalizes by Title Length
 8. In Title Indicator (1 if present, 0 otherwise)
 9. Bigram Coverage Body
+
+NDCG@10: 0.5818, MRR@10: 0.4444

@@ -143,6 +143,9 @@ cdef void union(vector[SearchResultPosting]& self_items, vector[SearchResultPost
         new_items.push_back(other_items[j])
         j += 1
 
+    # with gil:
+    #     print(f"Doc Ids after union: {[new_items[i].doc_id for i in range(new_items.size())]}")
+
     self_items.swap(new_items)
 
 cdef void difference(vector[SearchResultPosting]& self_items, vector[SearchResultPosting]& other_items) noexcept nogil:
@@ -167,6 +170,9 @@ cdef void difference(vector[SearchResultPosting]& self_items, vector[SearchResul
         elif posting1.doc_id < posting2.doc_id:
             # keep posting1
             new_items.push_back(posting1)
+            # with gil:
+            #     if posting1.doc_id == 158104:
+            #         print(f"kept {posting1.doc_id}")
             i += 1
         else:
             # advance other;
@@ -175,6 +181,12 @@ cdef void difference(vector[SearchResultPosting]& self_items, vector[SearchResul
     while i < n:
         new_items.push_back(self_items[i])
         i += 1
+        # with gil:
+        #     if self_items[i].doc_id == 158104:
+        #         print(f"kept1 {self_items[i].doc_id}")
+
+    # with gil:
+    #     print(f"Doc Ids after difference: {[new_items[i].doc_id for i in range(new_items.size())]}")
 
     self_items.swap(new_items)
 

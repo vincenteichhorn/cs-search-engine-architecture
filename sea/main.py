@@ -7,11 +7,11 @@ import shutil
 
 NAME = "all"
 INDEX_PATH = "./data/indices"
-EMBEDDINGS_PATH = f"./data/embeddings/"
+EMBEDDINGS_PATH = f"./data/embeddings"
 MODEL_PATH = "./data/models"
 DATASET = "./data/msmarco-docs.tsv"
 MAX_DOCUMENTS = 3_213_835
-PARTITION_SIZE = 20_000
+PARTITION_SIZE = 30_000
 
 
 def bold_string(s: str) -> str:
@@ -47,7 +47,7 @@ def color_string(s: str, color_code: int) -> str:
 
 def index():
 
-    inp = input(f"Do you really want to (re)build the index at {INDEX_PATH}? This will delete any existing index. (y/n): ")
+    inp = input(f"Do you really want to (re)build the index at {os.path.join(INDEX_PATH, NAME)}? This will delete any existing index. (y/n): ")
     if inp.lower() != "y":
         return
     index_path = os.path.join(INDEX_PATH, NAME)
@@ -66,7 +66,7 @@ def serve():
     end = time.time()
     print(f"Loaded in {(end - start) * 1000:.4f} milliseconds.")
 
-    mode = "combined"
+    mode = "exact"
     ltr_enabled = True
     while True:
         print("type 'mode:exact', 'mode:semantic', 'mode:combined', to select search mode, 'enable:ltr', 'disable:ltr' or 'exit' to quit.")
@@ -113,7 +113,7 @@ def serve():
         if mode == "exact":
             results, sources, semantic_scores = engine.exact_search(query, pre_select_k=50, top_k=10, ltr_enabled=ltr_enabled)
         elif mode == "semantic":
-            results, sources, semantic_scores = engine.semantic_search(query, top_k=10, ltr_enabled=ltr_enabled)
+            results, sources, semantic_scores = engine.semantic_search(query, pre_select_k=50, top_k=10, ltr_enabled=ltr_enabled)
         elif mode == "combined":
             results, sources, semantic_scores = engine.combined_search(query, exact_search_preselect_k=50, semantic_search_preselect_k=50, top_k=10)
         end = time.time()

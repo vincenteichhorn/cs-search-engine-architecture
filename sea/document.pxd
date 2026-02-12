@@ -36,7 +36,6 @@ cdef struct Posting:
     uint32_t* field_frequencies
     uint32_t* field_lengths
     vector[uint32_t] char_positions
-    # vector[uint32_t] token_positions
 
 cdef struct SearchResultPosting:
     uint32_t doc_id

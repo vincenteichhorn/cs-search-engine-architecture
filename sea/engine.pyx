@@ -13,6 +13,8 @@ from cython.cimports.libc.stdint cimport UINT32_MAX
 from libcpp.unordered_set cimport unordered_set
 from transformers import AutoTokenizer, AutoModel
 import torch.nn.functional as F
+from libc.time cimport clock, clock_t, CLOCKS_PER_SEC
+
 
 from sea.corpus cimport Corpus, doc_to_dict
 from sea.tokenizer cimport Tokenizer, TokenizedField
@@ -54,6 +56,9 @@ cdef class Engine:
 
     cdef unordered_map[uint64_t, uint64_t] global_document_frequencies
 
+    # lookup order: token_id -> min_tier -> max_tier -> vector[SearchResultPosting]
+    cdef unordered_map[uint64_t, unordered_map[uint32_t, unordered_map[uint32_t, vector[SearchResultPosting]]]] postings_cache
+
     cdef dict tier_disk_arrays
     cdef uint32_t num_tiers
     cdef uint64_t and_operator
@@ -82,6 +87,8 @@ cdef class Engine:
         self.model_path = model_path
         self.corpus = Corpus(os.path.join(self.index_path, self.name), "", mmap=True)
         self.tokenizer = Tokenizer(os.path.join(self.index_path, self.name), mmap=True)
+
+        self.postings_cache = unordered_map[uint64_t, unordered_map[uint32_t, unordered_map[uint32_t, vector[SearchResultPosting]]]]()
 
         self.tier_disk_arrays = {}
         for path in os.listdir(os.path.join(self.index_path, self.name)):
@@ -277,42 +284,83 @@ cdef class Engine:
         cdef EntryInfo entry
         cdef uint32_t posting_list_length
 
-        if node == NULL:
-            return UINT32_MAX
-        if node.left == NULL and node.right == NULL:
-            min_length = UINT32_MAX
-            tier_disk_array = self.tier_disk_arrays[tier]
-            for i in range(node.values.size()):
-                token = node.values[i]
-                entry = tier_disk_array.get(token)
-                posting_list_length = get_posting_list_length(entry.data, entry.length)
-                if posting_list_length < min_length:
-                    min_length = posting_list_length
-            return min_length
-        return min(self._tier_min_posting_list_length(node.left, tier), self._tier_min_posting_list_length(node.right, tier))
+        with nogil:
+            if node == NULL:
+                return UINT32_MAX
+            if node.left == NULL and node.right == NULL:
+                min_length = UINT32_MAX
+                with gil:
+                    tier_disk_array = self.tier_disk_arrays[tier]
+                for i in range(node.values.size()):
+                    token = node.values[i]
+                    entry = tier_disk_array.get(token)
+                    posting_list_length = get_posting_list_length(entry.data, entry.length)
+                    if posting_list_length < min_length:
+                        min_length = posting_list_length
+                return min_length
+            with gil:
+                return min(self._tier_min_posting_list_length(node.left, tier), self._tier_min_posting_list_length(node.right, tier))
 
-    cdef uint32_t _min_tier_index(self, QueryNode* node, uint32_t top_k):
+    cdef uint32_t _min_tier_index(self, QueryNode* node, uint32_t top_k) noexcept nogil:
         cdef uint32_t tier
         cdef uint32_t min_length
         for tier in range(self.num_tiers):
-            min_length = self._tier_min_posting_list_length(node, tier)
-            # print(f"Tier {tier} has min posting list length {min_length}")
+            with gil:
+                min_length = self._tier_min_posting_list_length(node, tier)
             if min_length >= top_k:
                 return tier
         return self.num_tiers - 1
 
+    cdef void _cache_postings(self, uint64_t token_id, uint32_t min_tier, uint32_t max_tier, vector[SearchResultPosting]& postings) noexcept nogil:
+        self.postings_cache[token_id][min_tier][max_tier] = postings
+
+    cdef bint _check_cache(self, uint64_t token_id, uint32_t min_tier, uint32_t max_tier) noexcept nogil:
+        return (self.postings_cache.find(token_id) != self.postings_cache.end() and self.postings_cache[token_id].find(min_tier) != self.postings_cache[token_id].end() and self.postings_cache[token_id][min_tier].find(max_tier) != self.postings_cache[token_id][min_tier].end())
+                
+    cdef void _get_cached_postings(self, vector[SearchResultPosting]& postings, uint64_t token_id, uint32_t min_tier, uint32_t max_tier) noexcept nogil:
+        if self._check_cache(token_id, min_tier, max_tier):
+            postings = self.postings_cache[token_id][min_tier][max_tier]
+        else:
+            postings = vector[SearchResultPosting]()
+            
     cdef vector[SearchResultPosting] _get_postings(self, uint64_t token_id, uint32_t min_tier, uint32_t max_tier):
-        
-        cdef DiskArray tier_disk_array
+        cdef vector[SearchResultPosting] sr_postings
+        cdef vector[SearchResultPosting] tmp_sr_postings
         cdef EntryInfo entry
-        cdef vector[SearchResultPosting] sr_postings, tmp_sr_postings
-        cdef vector[Posting] tmp_postings
-        for tier in range(min_tier, max_tier + 1):
-            tier_disk_array = self.tier_disk_arrays[tier]
-            entry = tier_disk_array.get(token_id)
-            # tmp_postings = deserialize_postings(entry.data, entry.length)
-            tmp_sr_postings = deserialize_search_result_postings(entry.data, entry.length, token_id)
-            union(sr_postings, tmp_sr_postings)
+        cdef uint32_t current_tier, tier            
+        cdef uint32_t start_reading_at = min_tier
+        
+        with nogil:
+
+            if self._check_cache(token_id, min_tier, max_tier):
+                self._get_cached_postings(sr_postings, token_id, min_tier, max_tier)
+                with gil:
+                    print(f"- Retrieved postings for token '{self.tokenizer.py_get(token_id)}': cache hit with {sr_postings.size()} postings from tiers {min_tier} to {max_tier}")
+                return sr_postings
+
+            for current_tier in range(max_tier, min_tier - 1 if min_tier > 0 else -1, -1):
+                if self._check_cache(token_id, min_tier, current_tier):
+                    self._get_cached_postings(sr_postings, token_id, min_tier, current_tier)
+                    start_reading_at = current_tier + 1
+                    with gil:
+                        print(f"- Retrieved postings for token '{self.tokenizer.py_get(token_id)}': cache hit with {sr_postings.size()} postings from tiers {min_tier} to {current_tier}")
+                    break
+
+            for current_tier in range(start_reading_at, max_tier + 1):
+                with gil:
+                    disk_arr = <DiskArray>self.tier_disk_arrays[current_tier]
+                entry = disk_arr.get(token_id)
+                if entry.length > 0:
+                    tmp_sr_postings = deserialize_search_result_postings(entry.data, entry.length, token_id)
+                    with gil:
+                        print(f"- Retrieving postings for token '{self.tokenizer.py_get(token_id)}': reading {tmp_sr_postings.size()} postings from tier {current_tier}")
+                    union(sr_postings, tmp_sr_postings)
+                else:
+                    with gil:
+                        print(f"- Retrieving postings for token '{self.tokenizer.py_get(token_id)}': no postings found in tier {current_tier}")
+        if sr_postings.size() > 0:
+            self._cache_postings(token_id, min_tier, max_tier, sr_postings)
+        
         return sr_postings
     
     cdef pair[CharPtr, uint32_t] _get_snippet(self, Document doc, SearchResultPosting posting):
@@ -321,9 +369,6 @@ cdef class Engine:
         cdef size_t snippet_length = SNIPPET_RADIUS
         cdef uint32_t l
         cdef uint32_t position = posting.snippet_position
-        # if posting.char_positions.size() != 0:
-        #     l = posting.char_positions.size() - 1
-        #     position = posting.char_positions[l][0] - doc.title_length if posting.char_positions[l].size() > 0 else 0
         if posting.snippet_position != UINT32_MAX:
             position = doc.title_length + snippet_length
         if position >= doc.body_length:
@@ -378,65 +423,83 @@ cdef class Engine:
             if documents.size() >= top_k:
                 break
         return documents
-    
 
-    cdef pair[vector[SearchResultPosting], bint] _full_boolean_search(self, QueryNode* node, uint32_t min_tier, uint32_t max_tier):
-
+    cdef pair[vector[SearchResultPosting], bint] _tiered_full_boolean_search(self, QueryNode* node, uint32_t min_k, uint32_t current_tier) noexcept nogil:
 
         if node == NULL:
             return pair[vector[SearchResultPosting], bint](vector[SearchResultPosting](), False)
-        cdef vector[SearchResultPosting] left_postings, right_postings, postings
-        cdef pair[vector[SearchResultPosting], bint] left_pair, right_pair, tmp_pair
-        cdef uint64_t token, i
-    
+
+        cdef vector[SearchResultPosting] result, other
+        cdef pair[vector[SearchResultPosting], bint] left_res, right_res
+        cdef bint result_isnot = False
+        cdef uint64_t token
+        cdef uint32_t local_tier = current_tier
+
+        # leaf node; get at least min_k postings of that term
         if node.left == NULL and node.right == NULL:
-            if node.values.size() > 1:
-                result = self._get_postings(node.values[0], min_tier, max_tier)
-                for i in range(1, node.values.size()):
-                    token = node.values[i]
-                    other_posting_list = self._get_postings(token, min_tier, max_tier)
-                    intersection_phrase(result, other_posting_list, 10)
-                return pair[vector[SearchResultPosting], bint](result, False)
-            else:
-                return pair[vector[SearchResultPosting], bint](self._get_postings(node.values[0], min_tier, max_tier), False)
+            while True:
+                if node.values.size() > 1:
+                    with gil:
+                        result = self._get_postings(node.values[0], 0, local_tier)
+                    for i in range(1, node.values.size()):
+                        token = node.values[i]
+                        with gil:
+                            other = self._get_postings(token, 0, local_tier)
+                        intersection_phrase(result, other, 10)
+                else:
+                    with gil:
+                        result = self._get_postings(node.values[0], 0, local_tier)
+                local_tier += 1
+                if result.size() >= min_k or local_tier >= self.num_tiers - 1:
+                    break
 
+            return pair[vector[SearchResultPosting], bint](result, False)
+        
         if node.values[0] == self.not_operator:
-            tmp_pair = self._full_boolean_search(node.right, min_tier, max_tier)
-            tmp_pair.second = not tmp_pair.second
-            return tmp_pair
+            right_res = self._tiered_full_boolean_search(node.right, min_k, self.num_tiers - 1)
+            right_res.second = not right_res.second
+            return right_res
 
-        left_pair = self._full_boolean_search(node.left, min_tier, max_tier)
-        right_pair = self._full_boolean_search(node.right, min_tier, max_tier)
+        left_res = self._tiered_full_boolean_search(node.left, min_k, local_tier)
+        right_res = self._tiered_full_boolean_search(node.right, min_k, local_tier)
 
         if node.values[0] == self.and_operator:
-            if not left_pair.second and not right_pair.second:
-                intersection(left_pair.first, right_pair.first)
-                return pair[vector[SearchResultPosting], bint](left_pair.first, False)
-            elif left_pair.second and not right_pair.second:
-                difference(right_pair.first, left_pair.first)
-                return pair[vector[SearchResultPosting], bint](right_pair.first, False)
-            elif not left_pair.second and right_pair.second:
-                difference(left_pair.first, right_pair.first)
-                return pair[vector[SearchResultPosting], bint](left_pair.first, False)
+            if not left_res.second and not right_res.second:
+                intersection(left_res.first, right_res.first)
+                result = left_res.first
+                result_isnot = False
+            elif left_res.second and not right_res.second:
+                difference(right_res.first, left_res.first)
+                result = right_res.first
+                result_isnot = False
+            elif not left_res.second and right_res.second:
+                difference(left_res.first, right_res.first)
+                result = left_res.first
+                result_isnot = True
             else:
-                union(left_pair.first, right_pair.first)
-                return pair[vector[SearchResultPosting], bint](left_pair.first, True)
+                union(left_res.first, right_res.first)
+                result = left_res.first
+                result_isnot = True
         elif node.values[0] == self.or_operator:
-            if not left_pair.second and not right_pair.second:
-                union(left_pair.first, right_pair.first)
-                return pair[vector[SearchResultPosting], bint](left_pair.first, False)
-            elif left_pair.second and not right_pair.second:
-                difference(left_pair.first, right_pair.first)
-                return pair[vector[SearchResultPosting], bint](left_pair.first, True)
-            elif not left_pair.second and right_pair.second:
-                difference(right_pair.first, left_pair.first)
-                return pair[vector[SearchResultPosting], bint](right_pair.first, True)
+            if not left_res.second and not right_res.second:
+                union(left_res.first, right_res.first)
+                result = left_res.first
+                result_isnot = False
+            elif left_res.second and not right_res.second:
+                difference(left_res.first, right_res.first)
+                result = left_res.first
+                result_isnot = True
+            elif not left_res.second and right_res.second:
+                difference(right_res.first, left_res.first)
+                result = right_res.first
+                result_isnot = True
             else:
-                intersection(left_pair.first, right_pair.first)
-                return pair[vector[SearchResultPosting], bint](left_pair.first, True)
-        else:
-            return pair[vector[SearchResultPosting], bint](vector[SearchResultPosting](), False)
-    
+                intersection(left_res.first, right_res.first)
+                result = left_res.first
+                result_isnot = True
+        
+        return pair[vector[SearchResultPosting], bint](result, result_isnot)
+        
     cdef vector[uint32_t] _rank_documents(self, vector[uint64_t] query_tokens, vector[SearchResultPosting]& postings, int pre_select_k):
         cdef float[:, :] feature_matrix = get_features(
             query_tokens,
@@ -467,17 +530,28 @@ cdef class Engine:
         if query_correction.second > 0:
             print(f"Did you mean \033[4m{str(query_correction.first, 'utf-8')}\033[0m?")
 
-    cdef vector[SearchResultPosting] _exact_search_postings(self, QueryNode* query_tree, size_t min_k, bint verbose):
+    cdef vector[SearchResultPosting] _exact_search_postings(self, QueryNode* query_tree, size_t min_k, uint32_t num_query_tokens, bint verbose) noexcept nogil:
 
         cdef uint32_t tier = self._min_tier_index(query_tree, min_k)
+        if verbose:
+            with gil:            
+                print(f"- min tier: {tier}")
         cdef pair[vector[SearchResultPosting], bint] results_pair = pair[vector[SearchResultPosting], bint](vector[SearchResultPosting](), False)
+        cdef clock_t start = clock()
         while results_pair.first.size() < min_k and tier < self.num_tiers:
-            results_pair = self._full_boolean_search(query_tree, min_tier=0, max_tier=tier)
+            results_pair = self._tiered_full_boolean_search(query_tree, min_k * num_query_tokens, tier)
+            if results_pair.first.size() < min_k:
+                with gil:
+                    print(f"- Not enough results {results_pair.first.size()}/{min_k} in tiers 0-{tier}, continuing search with tier {tier + 1}")
             tier += 1
+        cdef clock_t end = clock()
+        with gil:
+            print(f"- retrieval inner took {(end - start) / CLOCKS_PER_SEC * 1000:.4f} milliseconds.")
 
         if verbose:
-            print(f"- Gone up to tier {tier-1}")
-            print(f"- Number of results: {results_pair.first.size()}")
+            with gil:            
+                print(f"- max tier: {tier}")
+                print(f"- Number of results: {results_pair.first.size()}")
         return results_pair.first
     
     cdef vector[SearchResultPosting] _semantic_search_postings(self, str query, TokenizedField tokenized_query, size_t top_k):
@@ -492,11 +566,11 @@ cdef class Engine:
             similarity_vector.push_back(<float>similarity_scores[top_k_results.indices[i]].item())
         return self.simulate_search_result(top_k_indices, tokenized_query.tokens, similarity_vector)
 
-    cpdef object semantic_search(self, str query, size_t top_k, bint ltr_enabled):
+    cpdef object semantic_search(self, str query, size_t pre_select_k, size_t top_k, bint ltr_enabled):
         cdef TokenizedField tokenized_query = self._tokenize_query(query)
-        cdef vector[SearchResultPosting] sr_postings = self._semantic_search_postings(query, tokenized_query, top_k)
+        cdef vector[SearchResultPosting] sr_postings = self._semantic_search_postings(query, tokenized_query, pre_select_k)
         if sr_postings.size() <= 0:
-            return []
+            return [], [], []
 
         cdef vector[uint32_t] ranking_indices = vector[uint32_t]()
         if ltr_enabled:
@@ -513,17 +587,24 @@ cdef class Engine:
 
         cdef TokenizedField tokenized_query = self._tokenize_query(query)
         cdef QueryNode* query_tree = self.query_parser.parse(tokenized_query.tokens)
+        print_query_tree(query_tree, self.tokenizer, 0)
         self._print_query_correction(tokenized_query.tokens)
 
-        cdef vector[SearchResultPosting] results_postings = self._exact_search_postings(query_tree, pre_select_k, verbose=True)
+        cdef clock_t start = clock()
+        cdef vector[SearchResultPosting] results_postings = self._exact_search_postings(query_tree, pre_select_k, tokenized_query.tokens.size(), verbose=True)
         if results_postings.size() <= 0:
-            return []
+            return [], [], []
+        cdef clock_t end = clock()
+        print(f"- retrieval took {(end - start) / CLOCKS_PER_SEC * 1000:.4f} milliseconds.")
 
+        start = clock()
         sort(results_postings.begin(), results_postings.end(), compare_postings_scores)
         cdef vector[uint32_t] ranking_indices = vector[uint32_t]()
         if ltr_enabled:
             ranking_indices = self._rank_documents(tokenized_query.tokens, results_postings, pre_select_k)
         cdef vector[Document] documents = self._retrieve_documents_from_postings_with_snippets(results_postings, ranking_indices, top_k)
+        end = clock()
+        print(f"- ranking took {(end - start) / CLOCKS_PER_SEC * 1000:.4f} milliseconds.")
 
         cdef list results = [doc_to_dict(documents[i]) for i in range(min(top_k, results_postings.size()))]
         cdef list sources = ["exact" for i in range(min(top_k, results_postings.size()))]
@@ -536,7 +617,7 @@ cdef class Engine:
         cdef QueryNode* query_tree = self.query_parser.parse(tokenized_query.tokens)
         self._print_query_correction(tokenized_query.tokens)
 
-        cdef vector[SearchResultPosting] exact_postings = self._exact_search_postings(query_tree, exact_search_preselect_k, verbose=False)
+        cdef vector[SearchResultPosting] exact_postings = self._exact_search_postings(query_tree, exact_search_preselect_k, tokenized_query.tokens.size(), verbose=False)
         cdef vector[SearchResultPosting] semantic_postings = self._semantic_search_postings(query, tokenized_query, semantic_search_preselect_k)
 
         sort(exact_postings.begin(), exact_postings.end(), compare_postings_scores)
@@ -556,6 +637,9 @@ cdef class Engine:
             semantic_doc_ids.insert(<uint64_t>semantic_postings[i].doc_id)
         
         union(postings, semantic_postings)
+
+        if postings.size() <= 0:
+            return [], [], []
 
         cdef vector[uint32_t] ranking_indices = self._rank_documents(tokenized_query.tokens, postings, postings.size())
         cdef vector[Document] documents = self._retrieve_documents_from_postings_with_snippets(postings, ranking_indices, top_k)

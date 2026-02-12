@@ -89,6 +89,7 @@ cdef class QueryParser:
             return NULL
 
         cdef uint64_t token
+        cdef uint32_t next_node_id = 0
         cdef uint64_t i
         cdef uint32_t content_token_count = 0
         for i in range(tokens.size()):
@@ -130,6 +131,8 @@ cdef class QueryParser:
                     and self.operator_precedence[operator_stack.back()] > self.operator_precedence[token]
                 ):
                     node = new QueryNode()
+                    node.id = next_node_id
+                    next_node_id += 1
                     node.values = vector[uint64_t]()
                     node.values.push_back(operator_stack.back())
                     _operator = operator_stack.back()
@@ -146,6 +149,8 @@ cdef class QueryParser:
             elif token == self.close_paren:
                 while not operator_stack.empty() and operator_stack.back() != self.open_paren:
                     node = new QueryNode()
+                    node.id = next_node_id
+                    next_node_id += 1
                     node.values = vector[uint64_t]()
                     node.values.push_back(operator_stack.back())
                     _operator = operator_stack.back()
@@ -164,6 +169,8 @@ cdef class QueryParser:
                     phrase_tokens.swap(vector[uint64_t]())
                 else:
                     node = new QueryNode()
+                    node.id = next_node_id
+                    next_node_id += 1
                     node.values = phrase_tokens
                     node.left = NULL
                     node.right = NULL
@@ -173,6 +180,8 @@ cdef class QueryParser:
                     phrase_tokens.push_back(token)
                 else:
                     node = new QueryNode()
+                    node.id = next_node_id
+                    next_node_id += 1
                     node.values = vector[uint64_t]()
                     node.values.push_back(token)
                     node.left = NULL
@@ -181,6 +190,8 @@ cdef class QueryParser:
 
         while not operator_stack.empty():
             node = new QueryNode()
+            node.id = next_node_id
+            next_node_id += 1
             node.values = vector[uint64_t]()
             node.values.push_back(operator_stack.back())
             _operator = operator_stack.back()
