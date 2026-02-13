@@ -13,7 +13,7 @@ cdef void free_tokenized_document_with_postings(TokenizedDocument* tokenized_doc
 cdef pair[BytePtr, uint32_t] serialize_postings(vector[Posting*]* postings) noexcept nogil
 cdef uint32_t get_posting_list_length(const uint8_t* data, uint32_t length) noexcept nogil
 cdef vector[Posting] deserialize_postings(const uint8_t* data, uint32_t length) noexcept nogil
-cdef vector[SearchResultPosting] deserialize_search_result_postings(const uint8_t* data, uint32_t length, uint32_t token_id) noexcept nogil
+cdef vector[SearchResultPosting] deserialize_search_result_postings(const uint8_t* data, uint32_t length, uint32_t token_id, bint with_positions) noexcept nogil
 cdef vector[SearchResultPosting] create_search_result_postings(vector[Posting]& postings, uint64_t token) noexcept nogil
 cdef pair[float, size_t] update_posting_score(const uint8_t* data, size_t offset, float idf, float bm25k, vector[float]& field_boosts, vector[float]& bm25_bs, vector[float]& avg_field_lengths) noexcept nogil
 

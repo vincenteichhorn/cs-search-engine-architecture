@@ -5,7 +5,7 @@ from sea.corpus import Corpus, py_document_processor
 from sea.engine import Engine
 import shutil
 
-NAME = "all"
+NAME = "100k"
 INDEX_PATH = "./data/indices"
 EMBEDDINGS_PATH = f"./data/embeddings"
 MODEL_PATH = "./data/models"

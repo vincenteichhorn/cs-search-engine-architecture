@@ -10,13 +10,15 @@ cdef void print_query_tree(QueryNode* node, Tokenizer tokenizer, uint64_t depth)
     if node == NULL:
         return
     cdef uint64_t i
-    for i in range(depth):
+    with gil:
+        print("- ", end="")
+    for i in range(depth-1 if depth > 0 else 0):
         with gil:
             print("  ", end="")
     if node.left == NULL and node.right == NULL:
         if node.values.size() > 1:
             with gil:
-                print("[", end="")
+                print(f"{'∟ ' if depth > 0 else ''}[", end="")
             for i in range(node.values.size()):
                 with gil:
                     print(tokenizer.py_get(node.values[i]), end="")
@@ -27,10 +29,10 @@ cdef void print_query_tree(QueryNode* node, Tokenizer tokenizer, uint64_t depth)
                 print("]")
         else:
             with gil:
-                print(f"{tokenizer.py_get(node.values[0])}")
+                print(f"{'∟ ' if depth > 0 else ''}{tokenizer.py_get(node.values[0])}")
     else:
         with gil:
-            print(f"Op: {tokenizer.py_get(node.values[0])}")
+            print(f"{'∟ ' if depth > 0 else ''}Op: {tokenizer.py_get(node.values[0])}")
                 
             if tokenizer.py_get(node.values[0]).lower() == "not":
                 print_query_tree(node.right, tokenizer, depth + 1)
@@ -107,6 +109,7 @@ cdef class QueryParser:
             return NULL
 
         self._remove_surrounding_operators(tokens)
+        self._remove_double_phrase_marker(tokens)
         self._remove_consecutive_operators(tokens)
         self._fill_implicit_ands(tokens)
         self._remove_ands_in_phrases(tokens)
@@ -203,6 +206,26 @@ cdef class QueryParser:
                 value_stack.pop_back()
             value_stack.push_back(node)
         return value_stack[0]
+    
+    cdef void _remove_double_phrase_marker(self, vector[uint64_t]& tokens) noexcept nogil:
+        cdef vector[uint64_t] cleaned_tokens = vector[uint64_t]()
+        
+        cdef uint64_t i
+        cdef uint64_t current
+        cdef uint64_t n = tokens.size()
+
+        i = 0
+        while i < n:
+            current = tokens[i]
+            
+            if current == self.phrase_marker and i + 1 < n and tokens[i + 1] == self.phrase_marker:
+                i += 2
+                continue
+            else:
+                cleaned_tokens.push_back(current)
+                i += 1
+                
+        tokens.swap(cleaned_tokens)
 
     cdef void _remove_surrounding_operators(self, vector[uint64_t]& tokens) noexcept nogil:
 

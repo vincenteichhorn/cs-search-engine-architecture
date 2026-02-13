@@ -57,7 +57,7 @@ cdef class Engine:
     cdef unordered_map[uint64_t, uint64_t] global_document_frequencies
 
     # lookup order: token_id -> min_tier -> max_tier -> vector[SearchResultPosting]
-    cdef unordered_map[uint64_t, unordered_map[uint32_t, unordered_map[uint32_t, vector[SearchResultPosting]]]] postings_cache
+    cdef unordered_map[uint64_t, unordered_map[uint32_t, unordered_map[uint32_t, unordered_map[bint, vector[SearchResultPosting]]]]] postings_cache
 
     cdef dict tier_disk_arrays
     cdef uint32_t num_tiers
@@ -88,7 +88,7 @@ cdef class Engine:
         self.corpus = Corpus(os.path.join(self.index_path, self.name), "", mmap=True)
         self.tokenizer = Tokenizer(os.path.join(self.index_path, self.name), mmap=True)
 
-        self.postings_cache = unordered_map[uint64_t, unordered_map[uint32_t, unordered_map[uint32_t, vector[SearchResultPosting]]]]()
+        self.postings_cache = unordered_map[uint64_t, unordered_map[uint32_t, unordered_map[uint32_t, unordered_map[bint, vector[SearchResultPosting]]]]]()
 
         self.tier_disk_arrays = {}
         for path in os.listdir(os.path.join(self.index_path, self.name)):
@@ -311,19 +311,19 @@ cdef class Engine:
                 return tier
         return self.num_tiers - 1
 
-    cdef void _cache_postings(self, uint64_t token_id, uint32_t min_tier, uint32_t max_tier, vector[SearchResultPosting]& postings) noexcept nogil:
-        self.postings_cache[token_id][min_tier][max_tier] = postings
+    cdef void _cache_postings(self, uint64_t token_id, uint32_t min_tier, uint32_t max_tier, bint with_positions, vector[SearchResultPosting]& postings) noexcept nogil:
+        self.postings_cache[token_id][min_tier][max_tier][with_positions] = postings
 
-    cdef bint _check_cache(self, uint64_t token_id, uint32_t min_tier, uint32_t max_tier) noexcept nogil:
-        return (self.postings_cache.find(token_id) != self.postings_cache.end() and self.postings_cache[token_id].find(min_tier) != self.postings_cache[token_id].end() and self.postings_cache[token_id][min_tier].find(max_tier) != self.postings_cache[token_id][min_tier].end())
+    cdef bint _check_cache(self, uint64_t token_id, uint32_t min_tier, bint with_positions, uint32_t max_tier) noexcept nogil:
+        return (self.postings_cache.find(token_id) != self.postings_cache.end() and self.postings_cache[token_id].find(min_tier) != self.postings_cache[token_id].end() and self.postings_cache[token_id][min_tier].find(max_tier) != self.postings_cache[token_id][min_tier].end() and self.postings_cache[token_id][min_tier][max_tier].find(with_positions) != self.postings_cache[token_id][min_tier][max_tier].end())
                 
-    cdef void _get_cached_postings(self, vector[SearchResultPosting]& postings, uint64_t token_id, uint32_t min_tier, uint32_t max_tier) noexcept nogil:
-        if self._check_cache(token_id, min_tier, max_tier):
-            postings = self.postings_cache[token_id][min_tier][max_tier]
+    cdef void _get_cached_postings(self, vector[SearchResultPosting]& postings, uint64_t token_id, uint32_t min_tier, bint with_positions, uint32_t max_tier) noexcept nogil:
+        if self._check_cache(token_id, min_tier, with_positions, max_tier):
+            postings = self.postings_cache[token_id][min_tier][max_tier][with_positions]
         else:
             postings = vector[SearchResultPosting]()
             
-    cdef vector[SearchResultPosting] _get_postings(self, uint64_t token_id, uint32_t min_tier, uint32_t max_tier):
+    cdef vector[SearchResultPosting] _get_postings(self, uint64_t token_id, uint32_t min_tier, uint32_t max_tier, bint with_positions):
         cdef vector[SearchResultPosting] sr_postings
         cdef vector[SearchResultPosting] tmp_sr_postings
         cdef EntryInfo entry
@@ -332,15 +332,15 @@ cdef class Engine:
         
         with nogil:
 
-            if self._check_cache(token_id, min_tier, max_tier):
-                self._get_cached_postings(sr_postings, token_id, min_tier, max_tier)
+            if self._check_cache(token_id, min_tier, with_positions, max_tier):
+                self._get_cached_postings(sr_postings, token_id, min_tier, with_positions, max_tier)
                 with gil:
                     print(f"- Retrieved postings for token '{self.tokenizer.py_get(token_id)}': cache hit with {sr_postings.size()} postings from tiers {min_tier} to {max_tier}")
                 return sr_postings
 
             for current_tier in range(max_tier, min_tier - 1 if min_tier > 0 else -1, -1):
-                if self._check_cache(token_id, min_tier, current_tier):
-                    self._get_cached_postings(sr_postings, token_id, min_tier, current_tier)
+                if self._check_cache(token_id, min_tier, with_positions, current_tier):
+                    self._get_cached_postings(sr_postings, token_id, min_tier, with_positions, current_tier)
                     start_reading_at = current_tier + 1
                     with gil:
                         print(f"- Retrieved postings for token '{self.tokenizer.py_get(token_id)}': cache hit with {sr_postings.size()} postings from tiers {min_tier} to {current_tier}")
@@ -351,7 +351,7 @@ cdef class Engine:
                     disk_arr = <DiskArray>self.tier_disk_arrays[current_tier]
                 entry = disk_arr.get(token_id)
                 if entry.length > 0:
-                    tmp_sr_postings = deserialize_search_result_postings(entry.data, entry.length, token_id)
+                    tmp_sr_postings = deserialize_search_result_postings(entry.data, entry.length, token_id, with_positions=with_positions)
                     with gil:
                         print(f"- Retrieving postings for token '{self.tokenizer.py_get(token_id)}': reading {tmp_sr_postings.size()} postings from tier {current_tier}")
                     union(sr_postings, tmp_sr_postings)
@@ -359,12 +359,11 @@ cdef class Engine:
                     with gil:
                         print(f"- Retrieving postings for token '{self.tokenizer.py_get(token_id)}': no postings found in tier {current_tier}")
         if sr_postings.size() > 0:
-            self._cache_postings(token_id, min_tier, max_tier, sr_postings)
+            self._cache_postings(token_id, min_tier, max_tier, with_positions, sr_postings)
         
         return sr_postings
     
     cdef pair[CharPtr, uint32_t] _get_snippet(self, Document doc, SearchResultPosting posting):
-
 
         cdef size_t snippet_length = SNIPPET_RADIUS
         cdef uint32_t l
@@ -440,15 +439,15 @@ cdef class Engine:
             while True:
                 if node.values.size() > 1:
                     with gil:
-                        result = self._get_postings(node.values[0], 0, local_tier)
+                        result = self._get_postings(node.values[0], 0, local_tier, True)
                     for i in range(1, node.values.size()):
                         token = node.values[i]
                         with gil:
-                            other = self._get_postings(token, 0, local_tier)
+                            other = self._get_postings(token, 0, local_tier, True)
                         intersection_phrase(result, other, 10)
                 else:
                     with gil:
-                        result = self._get_postings(node.values[0], 0, local_tier)
+                        result = self._get_postings(node.values[0], 0, local_tier, False)
                 local_tier += 1
                 if result.size() >= min_k or local_tier >= self.num_tiers - 1:
                     break
@@ -466,36 +465,36 @@ cdef class Engine:
         if node.values[0] == self.and_operator:
             if not left_res.second and not right_res.second:
                 intersection(left_res.first, right_res.first)
-                result = left_res.first
+                result.swap(left_res.first)
                 result_isnot = False
             elif left_res.second and not right_res.second:
                 difference(right_res.first, left_res.first)
-                result = right_res.first
+                result.swap(right_res.first)
                 result_isnot = False
             elif not left_res.second and right_res.second:
                 difference(left_res.first, right_res.first)
-                result = left_res.first
+                result.swap(left_res.first)
                 result_isnot = True
             else:
                 union(left_res.first, right_res.first)
-                result = left_res.first
+                result.swap(left_res.first)
                 result_isnot = True
         elif node.values[0] == self.or_operator:
             if not left_res.second and not right_res.second:
                 union(left_res.first, right_res.first)
-                result = left_res.first
+                result.swap(left_res.first)
                 result_isnot = False
             elif left_res.second and not right_res.second:
                 difference(left_res.first, right_res.first)
-                result = left_res.first
+                result.swap(left_res.first)
                 result_isnot = True
             elif not left_res.second and right_res.second:
                 difference(right_res.first, left_res.first)
-                result = right_res.first
+                result.swap(right_res.first)
                 result_isnot = True
             else:
                 intersection(left_res.first, right_res.first)
-                result = left_res.first
+                result.swap(left_res.first)
                 result_isnot = True
         
         return pair[vector[SearchResultPosting], bint](result, result_isnot)
@@ -523,6 +522,7 @@ cdef class Engine:
         cdef bytes query_bytes = query.lower().encode("utf-8")
         cdef const char* query_c = query_bytes
         cdef TokenizedField tokenized_query = self.tokenizer.tokenize(query_c, len(query_bytes), True)
+        print("- Tokens:", [self.tokenizer.py_get(tokenized_query.tokens[i]) for i in range(tokenized_query.tokens.size())])
         return tokenized_query
 
     cdef void _print_query_correction(self, vector[uint64_t] query_tokens):
@@ -530,7 +530,7 @@ cdef class Engine:
         if query_correction.second > 0:
             print(f"Did you mean \033[4m{str(query_correction.first, 'utf-8')}\033[0m?")
 
-    cdef vector[SearchResultPosting] _exact_search_postings(self, QueryNode* query_tree, size_t min_k, uint32_t num_query_tokens, bint verbose) noexcept nogil:
+    cdef vector[SearchResultPosting] _exact_search_postings(self, QueryNode* query_tree, size_t min_k, bint verbose) noexcept nogil:
 
         cdef uint32_t tier = self._min_tier_index(query_tree, min_k)
         if verbose:
@@ -539,8 +539,8 @@ cdef class Engine:
         cdef pair[vector[SearchResultPosting], bint] results_pair = pair[vector[SearchResultPosting], bint](vector[SearchResultPosting](), False)
         cdef clock_t start = clock()
         while results_pair.first.size() < min_k and tier < self.num_tiers:
-            results_pair = self._tiered_full_boolean_search(query_tree, min_k * num_query_tokens, tier)
-            if results_pair.first.size() < min_k:
+            results_pair = self._tiered_full_boolean_search(query_tree, min_k, tier)
+            if results_pair.first.size() < min_k and tier < self.num_tiers - 2:
                 with gil:
                     print(f"- Not enough results {results_pair.first.size()}/{min_k} in tiers 0-{tier}, continuing search with tier {tier + 1}")
             tier += 1
@@ -550,7 +550,7 @@ cdef class Engine:
 
         if verbose:
             with gil:            
-                print(f"- max tier: {tier}")
+                print(f"- max tier: {tier - 1}")
                 print(f"- Number of results: {results_pair.first.size()}")
         return results_pair.first
     
@@ -591,7 +591,7 @@ cdef class Engine:
         self._print_query_correction(tokenized_query.tokens)
 
         cdef clock_t start = clock()
-        cdef vector[SearchResultPosting] results_postings = self._exact_search_postings(query_tree, pre_select_k, tokenized_query.tokens.size(), verbose=True)
+        cdef vector[SearchResultPosting] results_postings = self._exact_search_postings(query_tree, pre_select_k, verbose=True)
         if results_postings.size() <= 0:
             return [], [], []
         cdef clock_t end = clock()
@@ -617,7 +617,7 @@ cdef class Engine:
         cdef QueryNode* query_tree = self.query_parser.parse(tokenized_query.tokens)
         self._print_query_correction(tokenized_query.tokens)
 
-        cdef vector[SearchResultPosting] exact_postings = self._exact_search_postings(query_tree, exact_search_preselect_k, tokenized_query.tokens.size(), verbose=False)
+        cdef vector[SearchResultPosting] exact_postings = self._exact_search_postings(query_tree, exact_search_preselect_k, verbose=False)
         cdef vector[SearchResultPosting] semantic_postings = self._semantic_search_postings(query, tokenized_query, semantic_search_preselect_k)
 
         sort(exact_postings.begin(), exact_postings.end(), compare_postings_scores)

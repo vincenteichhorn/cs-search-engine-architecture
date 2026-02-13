@@ -161,7 +161,7 @@ cdef vector[Posting] deserialize_postings(const uint8_t* data, uint32_t length) 
 
     return postings
 
-cdef vector[SearchResultPosting] deserialize_search_result_postings(const uint8_t* data, uint32_t length, uint32_t token_id) noexcept nogil:
+cdef vector[SearchResultPosting] deserialize_search_result_postings(const uint8_t* data, uint32_t length, uint32_t token_id, bint with_positions) noexcept nogil:
     cdef vector[SearchResultPosting] postings = vector[SearchResultPosting]()
 
     cdef uint32_t i, j
@@ -197,12 +197,19 @@ cdef vector[SearchResultPosting] deserialize_search_result_postings(const uint8_
         memcpy(&num_positions, data + cur, sizeof(uint32_t))
         cur += sizeof(uint32_t)
         sr_posting.char_positions = vector[vector[uint32_t]]()
-        sr_posting.char_positions.push_back(vector[uint32_t](num_positions))
-        for j in range(num_positions):
-            memcpy(&sr_posting.char_positions[0][j], data + cur, sizeof(uint32_t))
+        sr_posting.char_positions.push_back(vector[uint32_t](1))
+        sr_posting.snippet_position = 0
+        if num_positions > 0:
+            memcpy(&sr_posting.snippet_position, data + cur, sizeof(uint32_t))
+            memcpy(&sr_posting.char_positions[0][0], data + cur, sizeof(uint32_t))
             cur += sizeof(uint32_t)
-        sr_posting.snippet_position = sr_posting.char_positions[0][0] if num_positions > 0 else 0
-
+            if with_positions:
+                sr_posting.char_positions[0].reserve(num_positions)
+                for j in range(1, num_positions):
+                    memcpy(&sr_posting.char_positions[0][j], data + cur, sizeof(uint32_t))
+                    cur += sizeof(uint32_t)
+            else:
+                cur += sizeof(uint32_t) * (num_positions - 1)
         postings.push_back(sr_posting)
 
     return postings
