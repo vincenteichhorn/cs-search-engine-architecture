@@ -10,7 +10,7 @@ INDEX_PATH = "./data/indices"
 EMBEDDINGS_PATH = f"./data/embeddings"
 MODEL_PATH = "./data/models"
 DATASET = "./data/msmarco-docs.tsv"
-MAX_DOCUMENTS = 3_213_835
+MAX_DOCUMENTS = 100_000  # 3_213_835
 PARTITION_SIZE = 30_000
 
 
@@ -25,22 +25,14 @@ def underline_string(s: str) -> str:
 def color_string(s: str, color_code: int) -> str:
     """
     Color codes:
-    Black: 30
-    Red: 31
-    Green: 32
-    Yellow: 33
-    Blue: 34
-    Magenta: 35
-    Cyan: 36
-    White: 37
-    Bright Black: 90
-    Bright Red: 91
-    Bright Green: 92
-    Bright Yellow: 93
-    Bright Blue: 94
-    Bright Magenta: 95
-    Bright Cyan: 96
-    Bright White: 97
+    30: black
+    31: red
+    32: green
+    33: yellow
+    34: blue
+    35: magenta
+    36: cyan
+    37: white
     """
     return f"\033[{color_code}m{s}\033[0m"
 

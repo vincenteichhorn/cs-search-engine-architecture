@@ -26,7 +26,7 @@ from sea.learning_to_rank.model import ListNet
 from sea.learning_to_rank.feature_mapping cimport get_features
 
 cdef str TIER_PREFIX = "tier_"
-cdef size_t SNIPPET_RADIUS = 200
+cdef size_t SNIPPET_RADIUS = 100
 cdef uint32_t SPELLING_FREQUENCY_THRESHOLD = 100
 cdef uint32_t NUM_TOTAL_DOCS = 3_213_835
 cdef list BM25_FIELD_BOOSTS = [1.0, 0.5]
@@ -365,33 +365,31 @@ cdef class Engine:
     
     cdef pair[CharPtr, uint32_t] _get_snippet(self, Document doc, SearchResultPosting posting):
 
-        cdef size_t snippet_length = SNIPPET_RADIUS
-        cdef uint32_t l
-        cdef uint32_t position = posting.snippet_position
-        if posting.snippet_position != UINT32_MAX:
-            position = doc.title_length + snippet_length
-        if position >= doc.body_length:
-            position = doc.body_length // 2
-        cdef size_t start_pos = position - snippet_length // 2 if position >= snippet_length // 2 else 0
-        cdef size_t end_pos = start_pos + snippet_length if start_pos + snippet_length < doc.body_length else doc.body_length
+        cdef int snippet_radius = SNIPPET_RADIUS
+        cdef int position = <int>posting.snippet_position - doc.title_length if posting.snippet_position != UINT32_MAX else 1
+        if position <= 0:
+            position = 1
+        cdef int start_pos = position - snippet_radius if position >= snippet_radius else 1
+        cdef int end_pos = start_pos + 2 * snippet_radius if start_pos + 2 * snippet_radius < <int>doc.body_length else doc.body_length
 
         cdef char* snippet = <char*>malloc((end_pos - start_pos + 1) * sizeof(char))
-        cdef size_t i
-        cdef uint32_t first_space = 0, last_space = 0
+        cdef int i
+        cdef int first_space = 0, last_space = 0
 
-        for i in range(start_pos, end_pos):
-            if doc.body[i] == ' ':
-                first_space = i
-                break
-
-        for i in range(end_pos, start_pos, -1):
-            if doc.body[i] == ' ':
-                last_space = i
-                break
+        if start_pos != 0:
+            for i in range(start_pos, end_pos):
+                if doc.body[i] == ' ':
+                    first_space = i
+                    break
+        if end_pos != <int>doc.body_length:
+            for i in range(end_pos, start_pos, -1):
+                if doc.body[i] == ' ':
+                    last_space = i
+                    break
 
         if first_space > 0:
             start_pos = first_space + 1
-        if last_space > 0 and last_space > (start_pos - start_pos):
+        if last_space > 0 and last_space > start_pos:
             end_pos = last_space
 
         for i in range(start_pos, end_pos):

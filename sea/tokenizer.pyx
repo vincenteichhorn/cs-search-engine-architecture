@@ -81,17 +81,26 @@ cdef class Tokenizer:
     cdef void _scan(self, const char* text, uint32_t length, vector[const char*]& token_ptrs, vector[uint32_t]& token_lens, vector[uint32_t]& char_positions, bint is_query) noexcept nogil:
         cdef int32_t start = -1
         cdef uint32_t i = 0
+        cdef bint has_alpha = False
+        cdef bint has_nums = False
         while i < length:
             c = text[i] | 0x20  # to_lower inlined
             if (c >= 'a' and c <= 'z') or (c >= '0' and c <= '9'):
                 if start < 0:
                     start = i
+                if c >= 'a' and c <= 'z':
+                    has_alpha = True
+                else:
+                    has_nums = True
             else:
                 if start >= 0:
-                    token_ptrs.push_back(text + start)
-                    token_lens.push_back(i - start)
-                    char_positions.push_back(start)
+                    if (has_alpha or has_nums) and not (has_alpha and has_nums) and (has_nums and (i-start) <= 4 or has_alpha and (i-start) <= 50):
+                        token_ptrs.push_back(text + start)
+                        token_lens.push_back(i - start)
+                        char_positions.push_back(start)
                     start = -1
+                    has_alpha = False
+                    has_nums = False
                 if is_query and (text[i] == '"' or text[i] == '(' or text[i] == ')'):
                     token_ptrs.push_back(text + i)
                     token_lens.push_back(1)

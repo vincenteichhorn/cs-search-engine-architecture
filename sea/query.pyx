@@ -108,6 +108,7 @@ cdef class QueryParser:
         if content_token_count == 0:
             return NULL
 
+        self._remove_empty_parans(tokens)
         self._remove_surrounding_operators(tokens)
         self._remove_double_phrase_marker(tokens)
         self._remove_consecutive_operators(tokens)
@@ -207,6 +208,23 @@ cdef class QueryParser:
             value_stack.push_back(node)
         return value_stack[0]
     
+
+    cdef void _remove_empty_parans(self, vector[uint64_t]& tokens) noexcept nogil:
+        cdef vector[uint64_t] cleaned_tokens = vector[uint64_t]()
+        cdef uint64_t i
+        cdef uint64_t current
+        cdef uint64_t n = tokens.size()
+        i = 0
+        while i < n:
+            current = tokens[i]
+            if current == self.open_paren and i + 1 < n and tokens[i + 1] == self.close_paren:
+                i += 2
+                continue
+            else:
+                cleaned_tokens.push_back(current)
+                i += 1
+        tokens.swap(cleaned_tokens)
+
     cdef void _remove_double_phrase_marker(self, vector[uint64_t]& tokens) noexcept nogil:
         cdef vector[uint64_t] cleaned_tokens = vector[uint64_t]()
         

@@ -132,3 +132,42 @@ def test_query_parser(tmp_path_factory):
         print("Parsed tree:", parsed_tree)
         print("Expected tree:", expected)
         assert parsed_tree == expected, f"Failed for query: {query}"
+
+
+if __name__ == "__main__":
+
+    tokenizer = Tokenizer("tmp")
+    tokenizer.py_tokenize(b'and or not ( ) "', True)  # Preload special tokens into vocabulary
+    query_parser = QueryParser(
+        and_operator=tokenizer.py_vocab_lookup(b"and"),
+        or_operator=tokenizer.py_vocab_lookup(b"or"),
+        not_operator=tokenizer.py_vocab_lookup(b"not"),
+        open_paren=tokenizer.py_vocab_lookup(b"("),
+        close_paren=tokenizer.py_vocab_lookup(b")"),
+        phrase_marker=tokenizer.py_vocab_lookup(b'"'),
+    )
+
+    tokens, _ = tokenizer.py_tokenize(b'apple banana cherry and or not ( ) " berlin wall blockade"', True)
+    apple_token = tokenizer.py_vocab_lookup(bytes(tokens[0], "utf-8"))
+    banana_token = tokenizer.py_vocab_lookup(bytes(tokens[1], "utf-8"))
+    cherry_token = tokenizer.py_vocab_lookup(bytes(tokens[2], "utf-8"))
+    and_token = tokenizer.py_vocab_lookup(bytes(tokens[3], "utf-8"))
+    or_token = tokenizer.py_vocab_lookup(bytes(tokens[4], "utf-8"))
+    not_token = tokenizer.py_vocab_lookup(bytes(tokens[5], "utf-8"))
+    open_paren_token = tokenizer.py_vocab_lookup(bytes(tokens[6], "utf-8"))
+    close_paren_token = tokenizer.py_vocab_lookup(bytes(tokens[7], "utf-8"))
+    phrase_marker_token = tokenizer.py_vocab_lookup(bytes(tokens[8], "utf-8"))
+    berlin_token = tokenizer.py_vocab_lookup(bytes(tokens[9], "utf-8"))
+    wall_token = tokenizer.py_vocab_lookup(bytes(tokens[10], "utf-8"))
+    blockade_token = tokenizer.py_vocab_lookup(bytes(tokens[11], "utf-8"))
+
+    while True:
+        query = input("Enter your search query (or 'exit' to quit): ")
+        if query.lower() == "exit":
+            break
+
+        tokens, _ = tokenizer.py_tokenize(bytes(query, "utf-8"), True)
+        tokens = [tokenizer.py_vocab_lookup(bytes(t, "utf-8")) for t in tokens]
+        print("Tokens:", tokens)
+        parsed_tree = query_parser.py_parse(tokens)
+        print("Parsed tree:", parsed_tree)

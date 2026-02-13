@@ -27,6 +27,7 @@ cdef class QueryParser:
 
     cpdef dict py_parse(self, list tokens)
     cdef QueryNode* parse(self, vector[uint64_t]& tokens) noexcept nogil
+    cdef void _remove_empty_parans(self, vector[uint64_t]& tokens) noexcept nogil
     cdef void _remove_double_phrase_marker(self, vector[uint64_t]& tokens) noexcept nogil
     cdef void _remove_surrounding_operators(self, vector[uint64_t]& tokens) noexcept nogil
     cdef void _remove_consecutive_operators(self, vector[uint64_t]& tokens) noexcept nogil
