@@ -60,3 +60,6 @@ To run the main application, use:
 9. Bigram Coverage Body
 
 NDCG@10: 0.5818, MRR@10: 0.4444
+
+
+memray tree  memray-sea.main.211713.bin

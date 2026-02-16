@@ -5,13 +5,13 @@ from sea.corpus import Corpus, py_document_processor
 from sea.engine import Engine
 import shutil
 
-NAME = "100k"
+NAME = "all"
 INDEX_PATH = "./data/indices"
 EMBEDDINGS_PATH = f"./data/embeddings"
 MODEL_PATH = "./data/models"
 DATASET = "./data/msmarco-docs.tsv"
-MAX_DOCUMENTS = 100_000  # 3_213_835
-PARTITION_SIZE = 30_000
+MAX_DOCUMENTS = 3_213_835
+PARTITION_SIZE = 20_000
 
 
 def bold_string(s: str) -> str:

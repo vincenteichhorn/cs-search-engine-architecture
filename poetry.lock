@@ -790,6 +790,17 @@ files = [
 ]
 
 [[package]]
+name = "flameprof"
+version = "0.4"
+description = "cProfile flamegraph generator"
+optional = false
+python-versions = "*"
+groups = ["main"]
+files = [
+    {file = "flameprof-0.4.tar.gz", hash = "sha256:dbc86d4190cbbba624f1e0a40f44d9db96138e27534d83c8ef42d420857875a3"},
+]
+
+[[package]]
 name = "fonttools"
 version = "4.61.1"
 description = "Tools to manipulate font files"
@@ -3556,6 +3567,21 @@ files = [
 ]
 
 [[package]]
+name = "snakeviz"
+version = "2.2.2"
+description = "A web-based viewer for Python profiler output"
+optional = false
+python-versions = ">=3.9"
+groups = ["main"]
+files = [
+    {file = "snakeviz-2.2.2-py3-none-any.whl", hash = "sha256:77e7b9c82f6152edc330040319b97612351cd9b48c706434c535c2df31d10ac5"},
+    {file = "snakeviz-2.2.2.tar.gz", hash = "sha256:08028c6f8e34a032ff14757a38424770abb8662fb2818985aeea0d9bc13a7d83"},
+]
+
+[package.dependencies]
+tornado = ">=2.0"
+
+[[package]]
 name = "spacy"
 version = "3.8.11"
 description = "Industrial-strength Natural Language Processing (NLP) in Python"
@@ -4007,7 +4033,7 @@ version = "6.5.4"
 description = "Tornado is a Python web framework and asynchronous networking library, originally developed at FriendFeed."
 optional = false
 python-versions = ">=3.9"
-groups = ["dev"]
+groups = ["main", "dev"]
 files = [
     {file = "tornado-6.5.4-cp39-abi3-macosx_10_9_universal2.whl", hash = "sha256:d6241c1a16b1c9e4cc28148b1cda97dd1c6cb4fb7068ac1bedc610768dff0ba9"},
     {file = "tornado-6.5.4-cp39-abi3-macosx_10_9_x86_64.whl", hash = "sha256:2d50f63dda1d2cac3ae1fa23d254e16b5e38153758470e9956cbc3d813d40843"},
@@ -4489,4 +4515,4 @@ dev = ["pytest", "setuptools"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11,<3.14"
-content-hash = "088e0581e6df3bc58417e043cb1ea4e5aa41a4b67275fe773d577c4401d0c793"
+content-hash = "79cbe15d97820ac1c2d9b34613b546e595875e0600b3ffceb94451058ba4d17f"

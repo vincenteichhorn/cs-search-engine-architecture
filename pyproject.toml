@@ -26,6 +26,8 @@ seaborn = "^0.13.2"
 transformers = "^4.57.6"
 einops = "^0.8.1"
 memray = "^1.19.1"
+flameprof = "^0.4"
+snakeviz = "^2.2.2"
 
 
 [build-system]
